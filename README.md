@@ -1,4 +1,4 @@
-# co2monitor
+# aeromancer
 
 Records the ZyAura / Holtek "USB-zyTemp" CO₂ meter (USB `04d9:a052`), stores
 the readings in SQLite, draws them on a local dashboard, and runs a
@@ -11,35 +11,37 @@ Pure Python standard library (3.11+): no packages to install.
 Let your user read the meter (once):
 
 ```sh
-sudo install -m644 udev/70-co2monitor.rules /etc/udev/rules.d/
+sudo install -m644 udev/70-aeromancer.rules /etc/udev/rules.d/
 sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=hidraw
 ```
 
 ## Usage
 
 ```sh
-python3 -m co2monitor run            # record + dashboard at http://127.0.0.1:8000
-python3 -m co2monitor record         # record only
-python3 -m co2monitor serve          # dashboard only (reads the same database)
-python3 -m co2monitor oracle --range 7d   # the analysis, in the terminal
+python3 -m aeromancer run            # record + dashboard at http://127.0.0.1:8000
+python3 -m aeromancer record         # record only
+python3 -m aeromancer serve          # dashboard only (reads the same database)
+python3 -m aeromancer oracle --range 7d   # the analysis, in the terminal
 ```
 
-Readings go to `~/.local/share/co2monitor/readings.sqlite3` (override with
-`--db`), at most one per quantity every 5 s (`--min-interval`). The recorder
-survives the meter being unplugged and picks it up again.
+Readings go to `~/.local/share/aeromancer/readings.sqlite3` (override with
+`--db`), at most one per quantity every 5 s (`--min-interval`). A database at
+the pre-rename location, `~/.local/share/co2monitor/`, is still used if it is
+the only one. The recorder survives the meter being unplugged and picks it up
+again.
 
 To record all the time, as a systemd user service:
 
 ```sh
-cp systemd/co2monitor.service ~/.config/systemd/user/
-systemctl --user enable --now co2monitor
+cp systemd/aeromancer.service ~/.config/systemd/user/
+systemctl --user enable --now aeromancer
 ```
 
 To try the dashboard without the meter:
 
 ```sh
-python3 -m co2monitor --db /tmp/demo.sqlite3 simulate --days 14
-python3 -m co2monitor --db /tmp/demo.sqlite3 serve
+python3 -m aeromancer --db /tmp/demo.sqlite3 simulate --days 14
+python3 -m aeromancer --db /tmp/demo.sqlite3 serve
 ```
 
 ## The dashboard

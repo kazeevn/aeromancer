@@ -1,6 +1,6 @@
 import unittest
 
-from co2monitor import device
+from aeromancer import device
 
 KEY = bytes([0xC4, 0xC6, 0xC0, 0x92, 0x40, 0x23, 0xDC, 0x96])
 

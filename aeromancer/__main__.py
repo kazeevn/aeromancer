@@ -1,4 +1,4 @@
-"""Command line: ``python -m co2monitor {run,record,serve,oracle,simulate}``."""
+"""Command line: ``python -m aeromancer {run,record,serve,oracle,simulate}``."""
 
 from __future__ import annotations
 
@@ -73,7 +73,7 @@ def cmd_simulate(args):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="co2monitor", description=__doc__)
+    parser = argparse.ArgumentParser(prog="aeromancer", description=__doc__)
     parser.add_argument("--db", type=Path, default=default_path(), help="SQLite file (default: %(default)s)")
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(required=True)

@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timezone
 
-from co2monitor import astro
+from aeromancer import astro
 
 
 def ts(text):

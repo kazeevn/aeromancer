@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from co2monitor import oracle
-from co2monitor.device import Reading
-from co2monitor.store import Store
+from aeromancer import oracle
+from aeromancer.device import Reading
+from aeromancer.store import Store
 
 START = 1_790_000_000.0
 

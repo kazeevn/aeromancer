@@ -2,7 +2,7 @@
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const REFRESH_MS = 15000;
-const RANGE_KEY = "co2monitor.range";
+const RANGE_KEY = "aeromancer.range";
 
 const state = {
   range: loadRange(),

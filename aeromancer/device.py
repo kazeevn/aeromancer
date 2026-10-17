@@ -11,7 +11,7 @@ already valid is taken as plaintext.
 
 We talk to the kernel's hidraw node directly, so no third-party packages are
 needed. Reading it as a normal user requires the udev rule shipped in
-``udev/70-co2monitor.rules``.
+``udev/70-aeromancer.rules``.
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ class CO2Monitor:
             self._fd = os.open(self.path, os.O_RDWR)
         except PermissionError as e:
             raise PermissionError(
-                f"cannot open {self.path}; install udev/70-co2monitor.rules "
+                f"cannot open {self.path}; install udev/70-aeromancer.rules "
                 "(see README) or run as root"
             ) from e
         # Feature report: report ID 0 followed by the 8-byte key.

@@ -26,8 +26,10 @@ QUANTITIES = ("co2", "temperature", "humidity")
 
 
 def default_path() -> Path:
-    base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
-    return Path(base) / "co2monitor" / "readings.sqlite3"
+    base = Path(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"))
+    path = base / "aeromancer" / "readings.sqlite3"
+    legacy = base / "co2monitor" / "readings.sqlite3"  # from before the project was renamed
+    return legacy if legacy.exists() and not path.exists() else path
 
 
 class Store:
