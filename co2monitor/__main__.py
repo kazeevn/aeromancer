@@ -1,0 +1,125 @@
+"""Command line: ``python -m co2monitor {run,record,serve,oracle,simulate}``."""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import math
+import random
+import sys
+import textwrap
+import time
+from pathlib import Path
+
+from . import server
+from .device import Reading
+from .recorder import record, start_in_background
+from .store import Store, default_path
+
+
+def cmd_run(args):
+    status, _ = start_in_background(args.db, device=args.device, min_interval=args.min_interval)
+    server.serve(args.db, args.host, args.port, recorder=status)
+
+
+def cmd_record(args):
+    record(args.db, device=args.device, min_interval=args.min_interval)
+
+
+def cmd_serve(args):
+    server.serve(args.db, args.host, args.port)
+
+
+def cmd_oracle(args):
+    result = server.run_oracle(Store(args.db), args.range)
+    for f in result["findings"]:
+        print(f"\n\033[1m{f['title']}: {f['headline']}\033[0m")
+        print(textwrap.fill(f["body"], 78, initial_indent="  ", subsequent_indent="  "))
+        for s in f.get("signals", []):
+            print(f"  \033[1m{s['op']}\033[0m {s['persona']}, {s['min']:g}\u2013{s['max']:g}")
+            print(textwrap.fill(s["reading"], 78, initial_indent="       ", subsequent_indent="       "))
+        print(f"  \033[2mCertainty: {f['certainty']}\033[0m")
+    print(f"\n\033[2m{result['disclaimer']}\033[0m")
+
+
+def cmd_simulate(args):
+    """Synthetic office air: people arrive, breathe, open windows, go home."""
+    rng = random.Random(args.seed)
+    end = time.time()
+    t = end - args.days * 86400
+    co2, temp = 430.0, 20.5
+    window_until = 0.0
+    readings = []
+    while t < end:
+        now = time.localtime(t)
+        occupied = now.tm_wday < 5 and 8.5 <= now.tm_hour + now.tm_min / 60 <= 18.5
+        people = 2 + rng.random() if occupied else 0
+        if occupied and rng.random() < 0.003:
+            window_until = t + rng.uniform(300, 1200)
+        leak = 0.03 if t < window_until else 0.004
+        co2 += people * 1.6 - (co2 - 420) * leak + rng.gauss(0, 2)
+        temp += ((23.0 if occupied else 20.0) - (2.0 if t < window_until else 0) - temp) * 0.01
+        readings.append(Reading(t, "co2", round(max(400, co2))))
+        readings.append(Reading(t + 1, "temperature", round(temp + rng.gauss(0, 0.03), 2)))
+        # Stand-ins for the undocumented codes, shaped like the real meter's.
+        readings.append(Reading(t + 2, "op_71", round(max(400, co2)) - 60))
+        readings.append(Reading(t + 2, "op_6d", 3247))
+        readings.append(Reading(t + 2, "op_6e", 27160 + rng.randint(-8, 8)))
+        readings.append(Reading(t + 2, "op_43", 3608 + round((temp - 21) * 4)))
+        t += 30
+    store = Store(args.db)
+    store.add(readings)
+    print(f"wrote {len(readings)} synthetic readings to {args.db}")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="co2monitor", description=__doc__)
+    parser.add_argument("--db", type=Path, default=default_path(), help="SQLite file (default: %(default)s)")
+    parser.add_argument("-v", "--verbose", action="store_true")
+    sub = parser.add_subparsers(required=True)
+
+    def recording(p):
+        p.add_argument("--device", help="hidraw node (default: autodetect 04d9:a052)")
+        p.add_argument("--min-interval", type=float, default=5.0, help="seconds between stored readings")
+
+    def serving(p):
+        p.add_argument("--host", default="127.0.0.1")
+        p.add_argument("--port", type=int, default=8000)
+
+    p = sub.add_parser("run", help="record and serve the dashboard")
+    recording(p)
+    serving(p)
+    p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("record", help="record only")
+    recording(p)
+    p.set_defaults(func=cmd_record)
+
+    p = sub.add_parser("serve", help="serve the dashboard only")
+    serving(p)
+    p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser("oracle", help="print the pseudo-scientific analysis")
+    p.add_argument("--range", default="24h", help="e.g. 90m, 24h, 7d, all")
+    p.set_defaults(func=cmd_oracle)
+
+    p = sub.add_parser("simulate", help="fill a database with synthetic data")
+    p.add_argument("--days", type=float, default=7)
+    p.add_argument("--seed", type=int, default=0)
+    p.set_defaults(func=cmd_simulate)
+
+    args = parser.parse_args(argv)
+    if args.func is cmd_simulate and "--db" not in (argv or sys.argv):
+        parser.error("simulate needs an explicit --db so it never pollutes real recordings")
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+    try:
+        args.func(args)
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()

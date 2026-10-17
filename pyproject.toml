@@ -1,0 +1,17 @@
+[project]
+name = "co2monitor"
+version = "0.1.0"
+description = "Record, plot and over-interpret a ZyAura USB CO2 monitor"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+co2monitor = "co2monitor.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-data]
+co2monitor = ["static/*"]

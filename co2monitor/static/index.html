@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CO₂ Monitor</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%232a78d6'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="viz-root">
+    <header class="top">
+      <div>
+        <h1>CO₂ Monitor</h1>
+        <p class="status" id="recorder-status" aria-live="polite">Connecting…</p>
+      </div>
+      <nav class="ranges" aria-label="Time range">
+        <button data-range="1h">1h</button>
+        <button data-range="6h">6h</button>
+        <button data-range="24h" aria-pressed="true">24h</button>
+        <button data-range="7d">7d</button>
+        <button data-range="30d">30d</button>
+        <button data-range="all">All</button>
+      </nav>
+    </header>
+
+    <section class="tiles" aria-label="Current readings">
+      <article class="tile hero">
+        <h2>CO₂ now</h2>
+        <p class="value"><span id="co2-now">–</span><span class="unit">ppm</span></p>
+        <p class="pill" id="co2-status" hidden></p>
+      </article>
+      <article class="tile">
+        <h2>Temperature</h2>
+        <p class="value"><span id="temp-now">–</span><span class="unit">°C</span></p>
+        <p class="sub" id="temp-sub"></p>
+      </article>
+      <article class="tile" id="hum-tile" hidden>
+        <h2>Humidity</h2>
+        <p class="value"><span id="hum-now">–</span><span class="unit">%</span></p>
+      </article>
+      <article class="tile">
+        <h2>Window average</h2>
+        <p class="value"><span id="co2-avg">–</span><span class="unit">ppm</span></p>
+        <p class="sub" id="co2-range"></p>
+      </article>
+      <article class="tile">
+        <h2>Stored readings</h2>
+        <p class="value" id="count">–</p>
+        <p class="sub" id="since"></p>
+      </article>
+    </section>
+
+    <section class="card">
+      <header class="card-head">
+        <h2>CO₂ concentration</h2>
+        <p class="legend">
+          <span class="item"><span class="key key-line co2"></span>ppm, bucket mean</span>
+          <span class="item"><span class="key key-band co2"></span>bucket min–max</span>
+          <span class="item"><span class="key key-retro"></span>Mercury retrograde</span>
+          <span class="item"><span class="key key-moon"></span>full / new moon</span>
+        </p>
+      </header>
+      <div class="chart" id="co2-chart" data-empty="No CO₂ readings in this range yet."></div>
+    </section>
+
+    <section class="card">
+      <header class="card-head">
+        <h2>Temperature</h2>
+        <p class="legend"><span class="item"><span class="key key-line temp"></span>°C, bucket mean</span></p>
+      </header>
+      <div class="chart short" id="temp-chart" data-empty="No temperature readings in this range yet."></div>
+    </section>
+
+    <details class="card table-card">
+      <summary>Data table</summary>
+      <div class="table-wrap"><table id="data-table"></table></div>
+    </details>
+
+    <section class="oracle" aria-labelledby="oracle-title">
+      <header class="oracle-head">
+        <h2 id="oracle-title">The Oracle</h2>
+        <p class="disclaimer" id="disclaimer"></p>
+      </header>
+      <div class="oracle-grid" id="oracle"></div>
+    </section>
+
+    <footer>
+      <p>Readings from a ZyAura “USB-zyTemp” sensor (04d9:a052). Planet positions from JPL Keplerian elements; Moon from the mean synodic month.</p>
+    </footer>
+  </main>
+  <div class="tooltip" id="tooltip" role="status" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
