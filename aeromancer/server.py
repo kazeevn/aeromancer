@@ -23,6 +23,9 @@ STATIC_FILES = {
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
 CHART_POINTS = 600
+CHART_QUANTITIES = ("co2", "temperature", "humidity") + tuple(
+    "blueair_" + q for q in ("co2", "pm1", "pm25", "pm10", "voc", "all_pollution", "temperature", "humidity")
+)
 ORACLE_POINTS = 2000
 
 
@@ -121,7 +124,7 @@ class Handler(BaseHTTPRequestHandler):
             "start": start,
             "end": end,
             "bucket": bucket,
-            "series": {q: store.series(q, start, end, bucket) for q in ("co2", "temperature", "humidity")},
+            "series": {q: store.series(q, start, end, bucket) for q in CHART_QUANTITIES},
             "retrograde": astro.mercury_retrograde_intervals(start, end),
             "lunations": astro.lunations(start, end),
         }

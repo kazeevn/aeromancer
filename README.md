@@ -79,10 +79,13 @@ For the systemd unit, point its `ExecStart` at
 ## The dashboard
 
 Live CO₂ with a status (fresh < 800 ≤ stuffy < 1200 ≤ ventilate < 2000 ≤
-leave the room), temperature, humidity on meters that have it, CO₂ and
-temperature charts with per-bucket min–max bands, a data table, and Mercury
-retrograde periods and full/new moons marked on the time axis. Hover or use
-the arrow keys on a chart to read values.
+leave the room), temperature, humidity on meters that have it, and two charts
+of stacked panels on one time axis, one unit per panel: Air (CO₂ from the
+meter and the purifier, particles, VOC, the purifier's pollution index) and
+Climate (both temperatures, humidity). The meter is drawn in blue with
+per-bucket min–max bands, the purifier in orange. Mercury retrograde periods
+and full/new moons are marked on the time axis. Hover or use the arrow keys
+on a chart to read every value at that moment.
 
 ## The Oracle
 

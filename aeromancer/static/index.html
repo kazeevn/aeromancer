@@ -53,29 +53,30 @@
 
     <section class="card">
       <header class="card-head">
-        <h2>CO₂ concentration</h2>
+        <h2>Air</h2>
         <p class="legend">
-          <span class="item"><span class="key key-line co2"></span>ppm, bucket mean</span>
-          <span class="item"><span class="key key-band co2"></span>bucket min–max</span>
+          <span class="item"><span class="key key-line zytemp"></span>zyTemp</span>
+          <span class="item"><span class="key key-band zytemp"></span>zyTemp min–max</span>
+          <span class="item"><span class="key key-line blueair"></span>Blueair</span>
           <span class="item"><span class="key key-retro"></span>Mercury retrograde</span>
           <span class="item"><span class="key key-moon"></span>full / new moon</span>
         </p>
       </header>
-      <div class="chart" id="co2-chart" data-empty="No CO₂ readings in this range yet."></div>
+      <div class="chart" id="air-chart" data-empty="No air readings in this range yet."></div>
     </section>
 
     <section class="card">
       <header class="card-head">
-        <h2>Temperature</h2>
-        <p class="legend"><span class="item"><span class="key key-line temp"></span>°C, bucket mean</span></p>
+        <h2>Climate</h2>
+        <p class="legend">
+          <span class="item"><span class="key key-line zytemp"></span>zyTemp</span>
+          <span class="item"><span class="key key-band zytemp"></span>zyTemp min–max</span>
+          <span class="item"><span class="key key-line blueair"></span>Blueair</span>
+          <span class="item"><span class="key key-retro"></span>Mercury retrograde</span>
+        </p>
       </header>
-      <div class="chart short" id="temp-chart" data-empty="No temperature readings in this range yet."></div>
+      <div class="chart" id="climate-chart" data-empty="No temperature or humidity readings in this range yet."></div>
     </section>
-
-    <details class="card table-card">
-      <summary>Data table</summary>
-      <div class="table-wrap"><table id="data-table"></table></div>
-    </details>
 
     <section class="oracle" aria-labelledby="oracle-title">
       <header class="oracle-head">
@@ -86,7 +87,7 @@
     </section>
 
     <footer>
-      <p>Readings from a ZyAura “USB-zyTemp” sensor (04d9:a052). Planet positions from JPL Keplerian elements; Moon from the mean synodic month.</p>
+      <p>Readings from a ZyAura “USB-zyTemp” sensor (04d9:a052) and, when configured, a Blueair purifier via Blueair’s cloud. Planet positions from JPL Keplerian elements; Moon from the mean synodic month.</p>
     </footer>
   </main>
   <div class="tooltip" id="tooltip" role="status" hidden></div>

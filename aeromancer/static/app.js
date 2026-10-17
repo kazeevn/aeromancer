@@ -118,148 +118,209 @@ function timeTicks(start, end, count) {
   return ticks.map(t => ({ t, label: label(t) }));
 }
 
-// ---------- line chart ----------
+// ---------- stacked line chart ----------
 
 /**
- * rows: [ts, mean, min, max][]; opts: { color, unit, format, refs, retrograde, lunations, describe }
+ * Panels stacked on one time axis, one unit per panel.
+ * panel: { title, height, series, keys, tick, format, minPad, floor, refs }
+ * series: { label, name, color, rows: [ts, mean, min, max][], band, interval }
+ * opts: { retrograde, lunations, describe }
  */
-function lineChart(container, rows, opts) {
+function stackedChart(container, panels, opts) {
   container.replaceChildren();
-  container.classList.toggle("empty", rows.length === 0);
-  if (!rows.length) return;
+  const any = panels.some(p => p.series.some(s => s.rows.length));
+  container.classList.toggle("empty", !any);
+  if (!any) { container.style.height = ""; return; }
 
+  const TOP = 18, TITLE = 22, GAP = 14, BOTTOM = 26;
+  const m = { left: 44, right: 52 };
   const W = container.clientWidth;
-  const H = container.clientHeight;
-  const m = { top: 22, right: 52, bottom: 26, left: 44 };
+  let cursor = TOP;
+  const layout = panels.map(p => {
+    const top = cursor + TITLE;
+    cursor = top + p.height + GAP;
+    return { ...p, top, y: null };
+  });
+  const H = cursor - GAP + BOTTOM;
+  container.style.height = `${H}px`;
   const pw = W - m.left - m.right;
-  const ph = H - m.top - m.bottom;
+  const plotTop = layout[0].top;
+  const plotBottom = layout.at(-1).top + layout.at(-1).height;
   const { start, end, bucket } = state.series;
-
-  let lo = Math.min(...rows.map(r => r[2]));
-  let hi = Math.max(...rows.map(r => r[3]));
-  const pad = Math.max((hi - lo) * 0.08, opts.minPad);
-  const yt = niceTicks(lo - pad, hi + pad, Math.max(3, Math.round(ph / 56)));
-  lo = yt[0]; hi = yt.at(-1);
   const x = t => m.left + ((t - start) / (end - start)) * pw;
-  const y = v => m.top + (1 - (v - lo) / (hi - lo)) * ph;
+  // Break a line where its source was not running.
+  const gapOf = s => Math.max(bucket * 3, 120, (s.interval || 0) * 2.5);
 
-  const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, tabindex: 0, role: "img", "aria-label": opts.describe(rows) }, container);
+  const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, tabindex: 0, role: "img", "aria-label": opts.describe }, container);
 
   // Mercury retrograde spans sit behind everything.
   const retro = svg("g", { class: "retro" }, root);
   for (const [a, b] of opts.retrograde || []) {
     const x0 = x(a), x1 = x(b);
-    svg("rect", { x: x0, y: m.top, width: Math.max(1, x1 - x0), height: ph }, retro);
-    if (x1 - x0 > 34) svg("text", { x: x0 + 6, y: m.top + 14, class: "retro-label" }, retro).textContent = "☿ ℞";
+    for (const p of layout) svg("rect", { x: x0, y: p.top, width: Math.max(1, x1 - x0), height: p.height }, retro);
+    if (x1 - x0 > 34) svg("text", { x: x0 + 6, y: plotBottom - 6, class: "retro-label" }, retro).textContent = "☿ ℞";
   }
 
   const grid = svg("g", { class: "grid" }, root);
   const axis = svg("g", { class: "axis" }, root);
-  for (const v of yt) {
-    svg("line", { x1: m.left, x2: m.left + pw, y1: Math.round(y(v)) + 0.5, y2: Math.round(y(v)) + 0.5 }, grid);
-    const label = svg("text", { x: m.left - 8, y: y(v) + 4, "text-anchor": "end" }, axis);
-    label.textContent = Math.abs(v) >= 10000 ? fmtCompact.format(v) : opts.tick(v);
-  }
-  svg("line", { class: "baseline", x1: m.left, x2: m.left + pw, y1: m.top + ph + 0.5, y2: m.top + ph + 0.5 }, root);
-  const xt = timeTicks(start, end, Math.max(2, Math.floor(pw / 96)));
-  for (const { t, label } of xt) {
-    const text = svg("text", { x: x(t), y: H - 6, "text-anchor": "middle" }, axis);
-    text.textContent = label;
+  const marks = svg("g", {}, root);
+  const labels = svg("g", {}, root);
+
+  for (const p of layout) {
+    const head = html("div", { class: "panel-title", style: `top:${p.top - TITLE}px; left:${m.left}px` }, container);
+    html("span", { class: "name" }, head, p.title);
+    if (p.keys) {
+      for (const s of p.series) {
+        const item = html("span", { class: "item" }, head);
+        html("span", { class: "key key-line", style: `background:${s.color}` }, item);
+        item.append(s.name);
+      }
+    }
+    svg("line", { class: "baseline", x1: m.left, x2: m.left + pw, y1: p.top + p.height + 0.5, y2: p.top + p.height + 0.5 }, root);
+
+    const rows = p.series.flatMap(s => s.rows);
+    if (!rows.length) {
+      svg("text", { x: m.left + pw / 2, y: p.top + p.height / 2 + 4, "text-anchor": "middle", class: "panel-empty" }, root)
+        .textContent = "No readings in this range";
+      continue;
+    }
+    let lo = Math.min(...rows.map(r => r[2]));
+    let hi = Math.max(...rows.map(r => r[3]));
+    const pad = Math.max((hi - lo) * 0.08, p.minPad);
+    const yt = niceTicks(Math.max(p.floor ?? -Infinity, lo - pad), hi + pad, Math.max(2, Math.round(p.height / 48)));
+    lo = yt[0]; hi = yt.at(-1);
+    const y = p.y = v => p.top + (1 - (v - lo) / (hi - lo)) * p.height;
+
+    for (const v of yt) {
+      if (v !== lo) svg("line", { x1: m.left, x2: m.left + pw, y1: Math.round(y(v)) + 0.5, y2: Math.round(y(v)) + 0.5 }, grid);
+      svg("text", { x: m.left - 8, y: y(v) + 4, "text-anchor": "end" }, axis)
+        .textContent = Math.abs(v) >= 10000 ? fmtCompact.format(v) : p.tick(v);
+    }
+    for (const ref of p.refs || []) {
+      if (ref.value <= lo || ref.value >= hi) continue;
+      const g = svg("g", { class: "ref" }, root);
+      const yy = Math.round(y(ref.value)) + 0.5;
+      svg("line", { x1: m.left, x2: m.left + pw, y1: yy, y2: yy }, g);
+      svg("text", { x: m.left + pw - 4, y: yy - 5, "text-anchor": "end" }, g).textContent = ref.label;
+    }
+
+    const ends = [];
+    for (const s of p.series) {
+      if (!s.rows.length) continue;
+      const segments = [];
+      let seg = [];
+      for (const r of s.rows) {
+        if (seg.length && r[0] - seg.at(-1)[0] > gapOf(s)) { segments.push(seg); seg = []; }
+        seg.push(r);
+      }
+      segments.push(seg);
+      if (s.band) {
+        for (const g of segments) {
+          const band = g.map(r => `${x(r[0])},${y(r[3])}`).concat(g.slice().reverse().map(r => `${x(r[0])},${y(r[2])}`));
+          svg("polygon", { points: band.join(" "), fill: s.color, "fill-opacity": 0.12 }, marks);
+        }
+      }
+      for (const g of segments) {
+        const d = g.map((r, i) => `${i ? "L" : "M"}${x(r[0]).toFixed(1)},${y(r[1]).toFixed(1)}`).join("");
+        svg("path", { d: g.length > 1 ? d : `${d}h0.1`, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, marks);
+      }
+      const last = s.rows.at(-1);
+      svg("circle", { cx: x(last[0]), cy: y(last[1]), r: 4, fill: s.color, stroke: "var(--surface-1)", "stroke-width": 2 }, labels);
+      ends.push({ x: x(last[0]), y: y(last[1]), text: p.tick(last[1]) });
+    }
+    // Value labels at the line ends, unless they would collide; the tooltip has them then.
+    ends.sort((a, b) => a.y - b.y);
+    if (ends.every((e, i) => !i || e.y - ends[i - 1].y >= 14)) {
+      for (const e of ends) svg("text", { x: e.x + 9, y: e.y + 4, class: "end-label" }, labels).textContent = e.text;
+    }
   }
 
-  for (const ref of opts.refs || []) {
-    if (ref.value <= lo || ref.value >= hi) continue;
-    const g = svg("g", { class: "ref" }, root);
-    const yy = Math.round(y(ref.value)) + 0.5;
-    svg("line", { x1: m.left, x2: m.left + pw, y1: yy, y2: yy }, g);
-    svg("text", { x: m.left + pw - 4, y: yy - 5, "text-anchor": "end" }, g).textContent = ref.label;
+  for (const { t, label } of timeTicks(start, end, Math.max(2, Math.floor(pw / 96)))) {
+    svg("text", { x: x(t), y: H - 6, "text-anchor": "middle" }, axis).textContent = label;
   }
-
   for (const [t, kind] of opts.lunations || []) {
     const c = svg("circle", { cx: x(t), cy: 9, r: 4.5, class: `moon-mark ${kind}` }, root);
     svg("title", {}, c).textContent = `${kind === "full" ? "Full" : "New"} moon, ${fmtFull.format(new Date(t * 1000))}`;
   }
 
-  // Break the line where the recorder was not running.
-  const gap = Math.max(bucket * 3, 120);
-  const segments = [];
-  let seg = [];
-  for (const r of rows) {
-    if (seg.length && r[0] - seg.at(-1)[0] > gap) { segments.push(seg); seg = []; }
-    seg.push(r);
-  }
-  segments.push(seg);
-
-  for (const s of segments) {
-    const band = s.map(r => `${x(r[0])},${y(r[3])}`).concat(s.slice().reverse().map(r => `${x(r[0])},${y(r[2])}`));
-    svg("polygon", { points: band.join(" "), fill: opts.color, "fill-opacity": 0.12 }, root);
-  }
-  for (const s of segments) {
-    const d = s.map((r, i) => `${i ? "L" : "M"}${x(r[0]).toFixed(1)},${y(r[1]).toFixed(1)}`).join("");
-    svg("path", { d: s.length > 1 ? d : `${d}h0.1`, fill: "none", stroke: opts.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, root);
-  }
-
-  const last = rows.at(-1);
-  svg("circle", { cx: x(last[0]), cy: y(last[1]), r: 4, fill: opts.color, stroke: "var(--surface-1)", "stroke-width": 2 }, root);
-  svg("text", { x: x(last[0]) + 9, y: y(last[1]) + 4, class: "end-label" }, root).textContent = opts.tick(last[1]);
-
-  // Hover & keyboard layer.
-  const cross = svg("line", { class: "crosshair", y1: m.top, y2: m.top + ph, visibility: "hidden" }, root);
-  const dot = svg("circle", { r: 4.5, fill: opts.color, stroke: "var(--surface-1)", "stroke-width": 2, visibility: "hidden", "pointer-events": "none" }, root);
+  // Hover & keyboard layer: one crosshair through every panel, one tooltip for every series.
+  const cross = svg("line", { class: "crosshair", y1: plotTop, y2: plotBottom, visibility: "hidden" }, root);
+  const tracked = layout.flatMap(p => (p.y ? p.series.filter(s => s.rows.length) : []).map(s => ({
+    p, s,
+    times: s.rows.map(r => r[0]),
+    dot: svg("circle", { r: 4.5, fill: s.color, stroke: "var(--surface-1)", "stroke-width": 2, visibility: "hidden", "pointer-events": "none" }, root),
+  })));
   const hit = svg("rect", { x: m.left, y: 0, width: pw, height: H, fill: "transparent" }, root);
-  let index = rows.length - 1;
+  // Keyboard steps follow the densest series.
+  const timeline = tracked.reduce((a, d) => (d.s.rows.length > a.length ? d.s.rows : a), []).map(r => r[0]);
+  let index = timeline.length - 1;
 
-  const show = i => {
-    index = Math.max(0, Math.min(rows.length - 1, i));
-    const r = rows[index];
-    const cx = x(r[0]), cy = y(r[1]);
+  const nearest = (times, t) => {
+    let a = 0, b = times.length - 1;
+    while (b - a > 1) { const mid = (a + b) >> 1; if (times[mid] < t) a = mid; else b = mid; }
+    return Math.abs(times[a] - t) < Math.abs(times[b] - t) ? a : b;
+  };
+  const show = (t, py) => {
+    const cx = x(t);
     cross.setAttribute("x1", cx); cross.setAttribute("x2", cx);
-    dot.setAttribute("cx", cx); dot.setAttribute("cy", cy);
-    cross.setAttribute("visibility", "visible"); dot.setAttribute("visibility", "visible");
+    cross.setAttribute("visibility", "visible");
+    const lines = [];
+    for (const { p, s, times, dot } of tracked) {
+      const r = s.rows[nearest(times, t)];
+      const near = Math.abs(r[0] - t) <= gapOf(s) / 2;
+      dot.setAttribute("visibility", near ? "visible" : "hidden");
+      if (!near) continue;
+      dot.setAttribute("cx", x(r[0])); dot.setAttribute("cy", p.y(r[1]));
+      lines.push({ color: s.color, label: s.label, value: p.format(r[1]) });
+    }
     const box = root.getBoundingClientRect();
-    showTooltip(box.left + (cx / W) * box.width, box.top + (cy / H) * box.height, opts.color, opts.format(r[1]), opts.sub(r), fmtFull.format(new Date(r[0] * 1000)));
+    showTooltip(box.left + (cx / W) * box.width, box.top + (py / H) * box.height, fmtFull.format(new Date(t * 1000)), lines);
+  };
+  const showIndex = i => {
+    index = Math.max(0, Math.min(timeline.length - 1, i));
+    show(timeline[index], plotTop + 40);
   };
   const hide = () => {
-    cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden");
+    cross.setAttribute("visibility", "hidden");
+    for (const { dot } of tracked) dot.setAttribute("visibility", "hidden");
     hideTooltip();
-  };
-  const nearest = t => {
-    let a = 0, b = rows.length - 1;
-    while (b - a > 1) { const mid = (a + b) >> 1; if (rows[mid][0] < t) a = mid; else b = mid; }
-    return Math.abs(rows[a][0] - t) < Math.abs(rows[b][0] - t) ? a : b;
   };
   hit.addEventListener("pointermove", e => {
     const box = root.getBoundingClientRect();
     const px = ((e.clientX - box.left) / box.width) * W;
-    show(nearest(start + ((px - m.left) / pw) * (end - start)));
+    const py = ((e.clientY - box.top) / box.height) * H;
+    index = nearest(timeline, start + ((px - m.left) / pw) * (end - start));
+    show(timeline[index], py);
   });
   hit.addEventListener("pointerleave", hide);
-  root.addEventListener("focus", () => show(index));
+  root.addEventListener("focus", () => showIndex(index));
   root.addEventListener("blur", hide);
   root.addEventListener("keydown", e => {
     const step = e.shiftKey ? 10 : 1;
-    if (e.key === "ArrowLeft") { show(index - step); e.preventDefault(); }
-    else if (e.key === "ArrowRight") { show(index + step); e.preventDefault(); }
-    else if (e.key === "Home") { show(0); e.preventDefault(); }
-    else if (e.key === "End") { show(rows.length - 1); e.preventDefault(); }
+    if (e.key === "ArrowLeft") { showIndex(index - step); e.preventDefault(); }
+    else if (e.key === "ArrowRight") { showIndex(index + step); e.preventDefault(); }
+    else if (e.key === "Home") { showIndex(0); e.preventDefault(); }
+    else if (e.key === "End") { showIndex(timeline.length - 1); e.preventDefault(); }
     else if (e.key === "Escape") hide();
   });
 }
 
 const tooltip = document.getElementById("tooltip");
 
-function showTooltip(px, py, color, value, sub, time) {
+function showTooltip(px, py, time, lines) {
   tooltip.replaceChildren();
-  const v = html("div", { class: "t-value" }, tooltip);
-  html("i", { style: `background:${color}` }, v);
-  v.append(value);
-  if (sub) html("div", { class: "t-sub" }, tooltip, sub);
   html("div", { class: "t-time" }, tooltip, time);
+  const rows = html("div", { class: "t-rows" }, tooltip);
+  for (const l of lines) {
+    html("i", { style: `background:${l.color}` }, rows);
+    html("span", { class: "t-label" }, rows, l.label);
+    html("span", { class: "t-value" }, rows, l.value);
+  }
   tooltip.hidden = false;
   const w = tooltip.offsetWidth, h = tooltip.offsetHeight;
-  let left = px + 14, top = py - h - 12;
+  let left = px + 14, top = py - h / 2;
   if (left + w > window.innerWidth - 8) left = px - w - 14;
-  if (top < 8) top = py + 14;
+  top = Math.max(8, Math.min(top, window.innerHeight - h - 8));
   tooltip.style.left = `${left}px`;
   tooltip.style.top = `${top}px`;
 }
@@ -268,42 +329,58 @@ function hideTooltip() { tooltip.hidden = true; }
 
 // ---------- rendering ----------
 
+const BLUEAIR_INTERVAL = 300;  // seconds between the purifier's uploads
+
 function renderCharts() {
   if (!state.series) return;
-  const { series, retrograde, lunations } = state.series;
-  const describe = (name, unit) => rows => {
-    if (!rows.length) return `${name}: no data`;
-    const vals = rows.map(r => r[1]);
-    return `${name} from ${fmtFull.format(new Date(rows[0][0] * 1000))}: latest ${fmt1.format(vals.at(-1))} ${unit}, ` +
-      `range ${fmt1.format(Math.min(...vals))} to ${fmt1.format(Math.max(...vals))} ${unit}. Use arrow keys to inspect.`;
-  };
+  const { series: s, retrograde, lunations } = state.series;
   const style = getComputedStyle(document.documentElement);
+  const color = name => style.getPropertyValue(`--series-${name}`).trim();
+  const meter = (label, rows) => ({ label, name: "zyTemp", color: color("meter"), rows, band: true });
+  const blueair = (label, rows, extra = {}) => ({ label, name: "Blueair", color: color("blueair"), rows, interval: BLUEAIR_INTERVAL, ...extra });
+  const int = { tick: v => fmtInt.format(v) };
+  const one = { tick: v => fmt1.format(v) };
+  const describe = (name, panels) => {
+    const parts = panels.flatMap(p => p.series.filter(x => x.rows.length).map(x => `${x.label} ${p.format(x.rows.at(-1)[1])}`));
+    return parts.length ? `${name}, latest: ${parts.join(", ")}. Use arrow keys to inspect.` : `${name}: no data`;
+  };
 
-  lineChart(document.getElementById("co2-chart"), series.co2, {
-    color: style.getPropertyValue("--series-co2").trim(),
-    minPad: 40,
-    tick: v => fmtInt.format(v),
-    format: v => `${fmtInt.format(v)} ppm`,
-    sub: r => {
-      const chakra = chakraOf(r[1]);
-      const spread = r[2] !== r[3] ? `${fmtInt.format(r[2])}–${fmtInt.format(r[3])} ppm` : null;
-      return [spread, chakra && `${chakra} chakra`].filter(Boolean).join(" · ");
+  const air = [
+    {
+      title: "CO₂, ppm", height: 190, minPad: 40, ...int, format: v => `${fmtInt.format(v)} ppm`,
+      refs: [{ value: 1000, label: "1000 ppm · open a window" }],
+      series: [meter("CO₂ zyTemp", s.co2), blueair("CO₂ Blueair", s.blueair_co2)],
     },
-    refs: [{ value: 1000, label: "1000 ppm · open a window" }],
-    retrograde,
-    lunations,
-    describe: describe("CO₂", "ppm"),
-  });
+    {
+      title: "Particles, µg/m³", height: 140, minPad: 2, floor: 0, keys: true, ...int, format: v => `${fmtInt.format(v)} µg/m³`,
+      series: [
+        blueair("PM1", s.blueair_pm1, { name: "PM1", color: color("pm1") }),
+        blueair("PM2.5", s.blueair_pm25, { name: "PM2.5" }),
+        blueair("PM10", s.blueair_pm10, { name: "PM10", color: color("pm10") }),
+      ],
+    },
+    {
+      title: "Volatile organic compounds, ppb", height: 100, minPad: 5, floor: 0, ...int, format: v => `${fmtInt.format(v)} ppb`,
+      series: [blueair("VOC", s.blueair_voc)],
+    },
+    {
+      title: "Blueair pollution index, %", height: 100, minPad: 2, floor: 0, ...int, format: v => `${fmtInt.format(v)} %`,
+      series: [blueair("Pollution index", s.blueair_all_pollution)],
+    },
+  ];
+  stackedChart(document.getElementById("air-chart"), air, { retrograde, lunations, describe: describe("Air", air) });
 
-  lineChart(document.getElementById("temp-chart"), series.temperature, {
-    color: style.getPropertyValue("--series-temp").trim(),
-    minPad: 0.3,
-    tick: v => fmt1.format(v),
-    format: v => `${fmt1.format(v)} °C`,
-    sub: r => (r[2] !== r[3] ? `${fmt1.format(r[2])}–${fmt1.format(r[3])} °C` : null),
-    retrograde,
-    describe: describe("Temperature", "°C"),
-  });
+  const climate = [
+    {
+      title: "Temperature, °C", height: 150, minPad: 0.3, ...one, format: v => `${fmt1.format(v)} °C`,
+      series: [meter("Temperature zyTemp", s.temperature), blueair("Temperature Blueair", s.blueair_temperature)],
+    },
+    {
+      title: "Relative humidity, %", height: 110, minPad: 2, ...int, format: v => `${fmtInt.format(v)} %`,
+      series: [meter("Humidity zyTemp", s.humidity), blueair("Humidity Blueair", s.blueair_humidity)].filter(x => x.rows.length),
+    },
+  ];
+  stackedChart(document.getElementById("climate-chart"), climate, { retrograde, describe: describe("Climate", climate) });
 }
 
 function renderTiles() {
@@ -348,26 +425,6 @@ function renderTiles() {
     : "";
 }
 
-function renderTable() {
-  const table = document.getElementById("data-table");
-  table.replaceChildren();
-  if (!state.series) return;
-  const { series, bucket } = state.series;
-  const temps = new Map(series.temperature.map(r => [Math.floor(r[0] / bucket), r[1]]));
-  const head = html("tr", {}, html("thead", {}, table));
-  for (const h of ["Time", "CO₂ mean (ppm)", "CO₂ min", "CO₂ max", "Temperature (°C)"]) html("th", {}, head, h);
-  const body = html("tbody", {}, table);
-  for (const r of series.co2.slice().reverse()) {
-    const tr = html("tr", {}, body);
-    html("td", {}, tr, fmtFull.format(new Date(r[0] * 1000)));
-    html("td", {}, tr, fmtInt.format(r[1]));
-    html("td", {}, tr, fmtInt.format(r[2]));
-    html("td", {}, tr, fmtInt.format(r[3]));
-    const t = temps.get(Math.floor(r[0] / bucket));
-    html("td", {}, tr, t === undefined ? "–" : fmt1.format(t));
-  }
-}
-
 function moonSvg(phase) {
   const r = 30;
   const s = svg("svg", { class: "moon-svg", width: 76, height: 76, viewBox: "-38 -38 76 76", "aria-hidden": "true" });
@@ -408,7 +465,7 @@ function sparkline(values) {
   return s;
 }
 
-const ORACLE_ORDER = ["horoscope", "signals", "aura", "moon", "mercury", "chakra", "zodiac", "schumann", "golden", "numerology"];
+const ORACLE_ORDER = ["horoscope", "aura", "moon", "mercury", "chakra", "zodiac", "schumann", "golden", "numerology", "signals"];
 
 function renderOracle() {
   const grid = document.getElementById("oracle");
@@ -505,7 +562,6 @@ async function refresh({ rangeChanged = false } = {}) {
     Object.assign(state, { latest, series, oracle });
     renderTiles();
     renderCharts();
-    renderTable();
     renderOracle();
   } catch (e) {
     const status = document.getElementById("recorder-status");
