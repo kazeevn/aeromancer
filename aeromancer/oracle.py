@@ -19,6 +19,22 @@ from . import astro, lore
 
 PHI = (1 + 5**0.5) / 2
 SCHUMANN_HZ = 7.83
+AIRING_PM25 = 35  # µg/m³ of outdoor PM2.5 (the US EPA 24-hour standard) above which airing trades CO2 for particles
+
+
+def hazy(outdoor_pm25: float | None) -> bool:
+    """Whether the outside air is too dirty to air the room with; unknown counts as clean."""
+    return outdoor_pm25 is not None and outdoor_pm25 >= AIRING_PM25
+
+
+def airing(outdoor_pm25: float | None) -> str:
+    """What to do about stale air, given the latest outdoor PM2.5 (None when unknown)."""
+    if hazy(outdoor_pm25):
+        return (
+            f"But the veil beyond the glass is thick with haze ({outdoor_pm25:.0f} µg/m³ of PM2.5): keep the windows "
+            "sealed, thin the crowd, and let the purifier sing."
+        )
+    return "Open a window and let the outside in."
 
 # Upper CO2 bound (ppm), name, Sanskrit name, reading.
 CHAKRAS = (
@@ -28,7 +44,7 @@ CHAKRAS = (
     (1000, "Heart", "Anahata", "Warm, loving, slightly shared air."),
     (1400, "Solar Plexus", "Manipura", "Willpower is high. Oxygen is less so."),
     (2000, "Sacral", "Svadhishthana", "Creative energy is pooling near the ceiling."),
-    (math.inf, "Root", "Muladhara", "Deeply grounded. Possibly asleep. Open a window."),
+    (math.inf, "Root", "Muladhara", "Deeply grounded. Possibly asleep. {airing}"),
 )
 
 LIFE_PATHS = {
@@ -452,7 +468,7 @@ def chakra_of(ppm: float) -> str:
     return _chakra_for(ppm)[1]
 
 
-def chakra_residency(co2):
+def chakra_residency(co2, outdoor_pm25: float | None = None):
     counts = [0] * len(CHAKRAS)
     for _, v in co2:
         counts[CHAKRAS.index(_chakra_for(v))] += 1
@@ -467,7 +483,7 @@ def chakra_residency(co2):
         "title": "Chakra residency",
         "headline": f"{CHAKRAS[dominant][1]} chakra",
         "body": f"Your air dwelt {counts[dominant] / total:.0%} of the time in {CHAKRAS[dominant][1]} "
-        f"({CHAKRAS[dominant][2]}). {CHAKRAS[dominant][3]}",
+        f"({CHAKRAS[dominant][2]}). {CHAKRAS[dominant][3].format(airing=airing(outdoor_pm25))}",
         "bands": bands,
     }
 
@@ -652,8 +668,8 @@ def zodiac(co2, temperature, end):
     }
 
 
-def horoscope(co2, end, findings, haze=None):
-    """``haze`` is the outdoor PM2.5 now, if known, so that the stars never send you out into it."""
+def horoscope(co2, end, findings, outdoor_pm25: float | None = None):
+    """``outdoor_pm25`` is the outdoor PM2.5 now, if known, so that the stars never send you out into it."""
     day = datetime.fromtimestamp(end).strftime("%Y-%m-%d")
     last_hour = [v for t, v in co2 if t >= end - 3600]
     trend = last_hour[-1] - last_hour[0] if len(last_hour) >= 2 else 0
@@ -693,8 +709,8 @@ def horoscope(co2, end, findings, haze=None):
         advice = "With Mercury in its shadow, back up your sensors."
     else:
         moon = moon_name if moon_name.endswith("Moon") else moon_name + " Moon"
-        if haze is not None and haze > PM25_BANDS[0][0]:  # past NEA's normal band, the stars keep the windows shut
-            options = ("keep the windows shut.", "water a plant.", "breathe more quietly.", "admire the haze from behind glass.")
+        if hazy(outdoor_pm25):  # the stars keep the windows shut
+            options = ("keep the windows shut and the purifier high.", "water a plant.", "breathe more quietly.", "admire the haze from behind glass.")
         else:
             options = ("air out the bedroom.", "water a plant.", "breathe more quietly.", "stand near a window.")
         advice = f"Under a {moon}, it is an auspicious time to " + _pick(options, day, "advice")
@@ -1584,6 +1600,7 @@ def analyze(
     born: dict[str, float] | None = None,
     home: tuple[float, float] | None = None,
     recent: dict[str, list[tuple[float, float]]] | None = None,
+    outdoor_pm25: float | None = None,
 ) -> dict:
     """The findings for the window from ``start`` to ``end``.
 
@@ -1595,6 +1612,7 @@ def analyze(
     ``home`` is ``(latitude, longitude)``, for solar time. ``recent`` holds
     the CASTERS' readings over the day before ``end``, so that the hexagram
     of the hour is the same in every window; without it, the window's are used.
+    ``outdoor_pm25`` is the latest outdoor PM2.5, if known, so the advice does not open windows into haze.
     """
     others = others or {}
     pool = {"co2": co2, "temperature": temperature, **others}
@@ -1605,7 +1623,7 @@ def analyze(
             aura(co2, temperature),
             lunar(co2, end),
             mercury(co2, start, end),
-            chakra_residency(co2),
+            chakra_residency(co2, outdoor_pm25),
             schumann(co2),
             golden_ratio(co2),
             numerology(co2),
@@ -1625,8 +1643,7 @@ def analyze(
     ]
     findings += [f for f in household if f]
     if co2:
-        haze = others.get("outdoor_pm25")
-        findings.append(horoscope(co2, end, findings, haze[-1][1] if haze else None))
+        findings.append(horoscope(co2, end, findings, outdoor_pm25))
     if not findings:
         return {"findings": [], "disclaimer": "The Oracle needs readings to divine anything."}
     for f in findings:

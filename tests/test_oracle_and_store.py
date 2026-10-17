@@ -1,5 +1,6 @@
 import json
 import math
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -112,6 +113,16 @@ class OracleTest(unittest.TestCase):
         self.assertEqual(by_op["0x6e"]["persona"], "The Trickster")
         self.assertEqual(by_op["0x4f"]["persona"], "The Ascender")
         self.assertEqual(oracle.voices({}, co2, temp, 0, 1)["headline"], "Silence")
+
+    def test_airing_heeds_the_haze(self):
+        self.assertIn("Open a window", oracle.airing(None))  # no outdoor data: assume the outside is fine
+        self.assertIn("Open a window", oracle.airing(oracle.AIRING_PM25 - 1))
+        hazy = oracle.airing(117)
+        self.assertNotIn("Open a window", hazy)
+        self.assertIn("117 µg/m³", hazy)
+        root = [(START + i * 60, 2500.0) for i in range(30)]  # Root chakra, which used to say "Open a window"
+        self.assertNotIn("Open a window", oracle.chakra_residency(root, 117)["body"])
+        self.assertIn("Open a window", oracle.chakra_residency(root)["body"])
 
     def test_numerology(self):
         self.assertEqual(oracle._digital_root(669), 3)
@@ -398,6 +409,30 @@ class StoreTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 store.place(START, "zytmp", "bedroom")
             store.close()
+
+    def test_readonly(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.sqlite3"
+            with self.assertRaises(FileNotFoundError):
+                Store(path, readonly=True)
+            self.assertFalse(path.exists())  # and did not create it
+            writer = Store(path)
+            writer.add([Reading(START, "co2", 500.0)])
+            reader = Store(path, readonly=True)
+            self.assertEqual(reader.latest()["co2"], (START, 500.0))
+            writer.add([Reading(START + 1, "co2", 600.0)])  # the recorder carries on while the dashboard reads
+            self.assertEqual(reader.latest()["co2"], (START + 1, 600.0))
+            for write in (
+                lambda: reader.add([Reading(START + 2, "co2", 700.0)]),
+                lambda: reader.place(START, "zytemp", "bedroom"),
+                lambda: reader.add_stations([("S1", "x", 1.0, 2.0)]),
+                lambda: reader.db.execute("CREATE TABLE IF NOT EXISTS other (x)"),
+            ):
+                with self.assertRaises(sqlite3.OperationalError):
+                    write()
+            self.assertEqual(writer.count(), 2)
+            reader.close()
+            writer.close()
 
     def test_device_of(self):
         self.assertEqual(device_of("co2"), "zytemp")

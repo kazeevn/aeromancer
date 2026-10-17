@@ -1,4 +1,4 @@
-"""Command line: ``python -m aeromancer {run,record,blueair,nea,serve,place,placements,unplace,oracle,simulate}``."""
+"""Command line: ``python -m aeromancer {run,record,blueair,nea,serve,place,placements,unplace,oracle,kabbalah,simulate}``."""
 
 from __future__ import annotations
 
@@ -130,7 +130,7 @@ def cmd_place(args):
 
 
 def cmd_placements(args):
-    store = Store(args.db)
+    store = Store(args.db, readonly=True)
     placements = store.placements(args.device)
     if not placements:
         print("no placements recorded")
@@ -143,8 +143,7 @@ def cmd_unplace(args):
         sys.exit(f"no placement {args.id}")
 
 
-def cmd_oracle(args):
-    result = server.run_oracle(Store(args.db), args.range, home_region(args), home_position(args))
+def print_findings(result):
     for f in result["findings"]:
         print(f"\n\033[1m{f['title']}: {f['headline']}\033[0m")
         for line in reversed(f["lines"] if f["id"] == "iching" else []):  # drawn from the top, cast from the bottom
@@ -154,8 +153,18 @@ def cmd_oracle(args):
         for s in f.get("signals", []):
             print(f"  \033[1m{s['op']}\033[0m {s['persona']}, {s['min']:g}\u2013{s['max']:g}")
             print(textwrap.fill(s["reading"], 78, initial_indent="       ", subsequent_indent="       "))
+        for c in f.get("coincidences", []):
+            print(textwrap.fill(c["text"], 78, initial_indent="  • ", subsequent_indent="    "))
         print(f"  \033[2mCertainty: {f['certainty']}\033[0m")
     print(f"\n\033[2m{result['disclaimer']}\033[0m")
+
+
+def cmd_oracle(args):
+    print_findings(server.run_oracle(Store(args.db, readonly=True), args.range, home_region(args), home_position(args)))
+
+
+def cmd_kabbalah(args):
+    print_findings(server.run_kabbalah(Store(args.db, readonly=True), args.range, home_region(args), home_position(args)))
 
 
 def cmd_simulate(args):
@@ -270,6 +279,11 @@ def main(argv=None):
     p.add_argument("--range", default="24h", help="e.g. 90m, 24h, 7d, all")
     outdoor(p)
     p.set_defaults(func=cmd_oracle)
+
+    p = sub.add_parser("kabbalah", help="print the pseudo-mystical analysis")
+    p.add_argument("--range", default="24h", help="e.g. 90m, 24h, 7d, all")
+    outdoor(p)
+    p.set_defaults(func=cmd_kabbalah)
 
     p = sub.add_parser("simulate", help="fill a database with synthetic data")
     p.add_argument("--days", type=float, default=7)

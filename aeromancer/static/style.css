@@ -537,6 +537,47 @@ button:focus-visible, .chart svg:focus-visible {
 .timeline .now line { stroke: var(--text-primary); stroke-width: 1.5; }
 .timeline .now text { font-size: 11.5px; font-weight: 600; fill: var(--text-primary); }
 
+/* The Tree of Life */
+.kabbalah .oracle-head h2::before { content: "ℵ "; }
+.tree-layout { display: grid; grid-template-columns: auto 1fr; gap: 12px 28px; align-items: start; }
+.tree-text { display: flex; flex-direction: column; gap: 8px; align-self: stretch; }
+.tree { display: block; overflow: visible; }
+.tree-paths .trodden { stroke: var(--oracle-accent); stroke-opacity: 0.55; stroke-linecap: round; }
+.tree-paths .untrodden { stroke: var(--grid); }
+.tree-paths .hit { stroke: transparent; stroke-width: 12; }
+.tree-letters text {
+  font-size: 11px; text-anchor: middle; fill: var(--text-muted); pointer-events: none;
+  paint-order: stroke; stroke: var(--surface-1); stroke-width: 4px; stroke-linejoin: round;
+}
+.tree-nodes .ring { fill: var(--surface-1); stroke: var(--axis); stroke-width: 1; }
+.tree-nodes .fill { fill: var(--oracle-accent); }
+.tree-nodes .hit { fill: transparent; }
+.tree-nodes .name {
+  font-size: 11.5px; fill: var(--text-secondary); pointer-events: none;
+  paint-order: stroke; stroke: var(--surface-1); stroke-width: 4px; stroke-linejoin: round;
+}
+.tree-nodes .name.dominant { fill: var(--text-primary); font-weight: 600; }
+.tree .hit:focus-visible { outline: none; stroke: var(--series-meter); stroke-width: 2; }
+.tree-paths .hit:focus-visible { stroke-opacity: 0.4; stroke-width: 12; }
+.pillars { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--text-secondary); }
+.pillars b { font-weight: 600; color: var(--text-primary); }
+.tree-note { font-size: 12.5px; color: var(--text-muted); }
+.chant {
+  font-size: 20px; letter-spacing: 0.12em; color: var(--text-muted); text-align: left;
+  overflow-wrap: anywhere; font-family: "SBL Hebrew", "Ezra SIL", "Frank Ruehl CLM", "Noto Serif Hebrew", serif;
+}
+.chant mark { background: none; color: var(--oracle-accent); font-weight: 700; }
+.name-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.name-chip { padding: 2px 10px; border-radius: 999px; background: var(--wash); font-size: 13px; color: var(--text-secondary); }
+.name-chip .word { color: var(--text-primary); font-weight: 600; }
+.name-chip .count { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.tree-voices { font-size: 12.5px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.tree-voices b { font-weight: 550; color: var(--text-primary); }
+.coincidence-list { display: grid; }
+.coincidence { display: grid; grid-template-columns: 112px 1fr; gap: 4px 16px; padding: 8px 0; border-top: 1px solid var(--grid); font-size: 14px; }
+.coincidence .pair { font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--oracle-accent); padding-top: 1px; }
+.numeral.hebrew { font-family: "SBL Hebrew", "Ezra SIL", "Frank Ruehl CLM", "Noto Serif Hebrew", serif; text-align: left; }
+
 footer { margin-top: 32px; color: var(--text-muted); font-size: 12.5px; }
 
 @media (max-width: 560px) {
@@ -546,6 +587,10 @@ footer { margin-top: 32px; color: var(--text-muted); font-size: 12.5px; }
   .signal { grid-template-columns: 40px 1fr; }
   .signal .spark, .signal-stats { grid-column: 2; text-align: left; }
   .tile.hero { grid-column: 1 / -1; }
+  .tree-layout { grid-template-columns: 1fr; }
+  .chant { font-size: 16px; letter-spacing: 0.04em; }
+  .coincidence { grid-template-columns: 1fr; }
+  .tree { margin: 0 auto; }
   .chart { height: 240px; }
   .ranges { width: 100%; justify-content: space-between; }
   .ranges button { min-width: 0; flex: 1; padding: 6px 4px; }

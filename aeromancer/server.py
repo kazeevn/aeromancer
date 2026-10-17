@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import astro, nea, oracle, weather
+from . import astro, kabbalah, nea, oracle, weather
 from .recorder import RecorderStatus
 from .store import Store
 
@@ -30,6 +30,7 @@ ORACLE_POINTS = 2000
 ORACLE_QUANTITIES = ("humidity",) + tuple("blueair_" + q for q in ("pm25", "voc", "temperature", "humidity", "fan_speed"))
 # The first reading of each household member, its birthday.
 BIRTHS = {"zytemp": "co2", "blueair": "blueair_*", "island": nea.PREFIX + "*", "weather": weather.PREFIX + "temperature_*"}
+OUTDOOR_FRESH = 3 * 3600  # seconds an outdoor PM2.5 reading stays good for advice; NEA's are hourly
 
 
 def parse_range(text: str) -> float | None:
@@ -55,13 +56,25 @@ def _points(rows) -> list[tuple[float, float]]:
     return [(ts, mean) for ts, mean, _, _ in rows]
 
 
-def run_oracle(store: Store, range_text: str, outdoor_region: str | None = None, home=None) -> dict:
+def _divination_window(store: Store, range_text: str):
+    """The window's start, end and bucket, and a function giving a quantity's points in it at that resolution."""
     start, end = _window(store, range_text)
     bucket = max(1.0, (end - start) / ORACLE_POINTS)
 
     def points(quantity):
         return _points(store.series(quantity, start, end, bucket))
 
+    return start, end, bucket, points
+
+
+def outdoor_pm25_now(store: Store, region: str | None) -> float | None:
+    """NEA's latest PM2.5 for ``region``, or None when there is none fresh enough to go by."""
+    row = store.latest_of(nea.PREFIX + region) if region else None
+    return row[1] if row and time.time() - row[0] < OUTDOOR_FRESH else None
+
+
+def run_oracle(store: Store, range_text: str, outdoor_region: str | None = None, home=None) -> dict:
+    start, end, bucket, points = _divination_window(store, range_text)
     signals = {name: p for name in store.signal_names() if (p := points(name))}
     others = {q: points(q) for q in ORACLE_QUANTITIES}
     regions = {r: points(nea.PREFIX + r) for r in nea.REGIONS}
@@ -90,7 +103,18 @@ def run_oracle(store: Store, range_text: str, outdoor_region: str | None = None,
         born=born,
         home=home,
         recent=recent,
+        outdoor_pm25=outdoor_pm25_now(store, outdoor_region),
     )
+
+
+def run_kabbalah(store: Store, range_text: str, outdoor_region: str | None = None, home=None) -> dict:
+    start, end, bucket, points = _divination_window(store, range_text)
+    series = {key: points(key) for key in kabbalah.INSTRUMENTS if not key.startswith("outdoor_")}
+    # Under generic names, as on the charts, so the dashboard does not say where home is.
+    series["outdoor_pm25"] = points(nea.PREFIX + outdoor_region) if outdoor_region else []
+    for kind in ("temperature", "humidity", "rain", "wind_speed"):
+        series["outdoor_" + kind] = _points(weather.home_series(store, home, kind, start, end, bucket))
+    return kabbalah.analyze(series, end, outdoor_pm25_now(store, outdoor_region))
 
 
 class DashboardServer(ThreadingHTTPServer):
@@ -116,10 +140,18 @@ class Handler(BaseHTTPRequestHandler):
         if url.path in STATIC_FILES:
             name, content_type = STATIC_FILES[url.path]
             return self._send(HTTPStatus.OK, (STATIC_DIR / name).read_bytes(), content_type)
-        api = {"/api/latest": self.latest, "/api/series": self.series, "/api/oracle": self.oracle}.get(url.path)
+        api = {
+            "/api/latest": self.latest,
+            "/api/series": self.series,
+            "/api/oracle": self.oracle,
+            "/api/kabbalah": self.kabbalah,
+        }.get(url.path)
         if api is None:
             return self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
-        store = Store(self.server.db_path)
+        try:
+            store = Store(self.server.db_path, readonly=True)  # the dashboard never writes; the recorder does
+        except FileNotFoundError as e:
+            return self._send(HTTPStatus.SERVICE_UNAVAILABLE, str(e).encode(), "text/plain")
         try:
             body = api(store, query)
         except ValueError as e:
@@ -144,6 +176,7 @@ class Handler(BaseHTTPRequestHandler):
             "now": time.time(),
             "latest": {q: {"ts": ts, "value": v} for q, (ts, v) in latest.items()},
             "chakra": oracle.chakra_of(co2[1]) if co2 else None,
+            "hazy": oracle.hazy(outdoor_pm25_now(store, self.server.outdoor_region)),
             "first_ts": span[0] if span else None,
             "count": store.count(),
             "recorder": self.server.recorder.snapshot() if self.server.recorder else None,
@@ -174,6 +207,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def oracle(self, store: Store, query):
         return run_oracle(store, query.get("range", "24h"), self.server.outdoor_region, self.server.home)
+
+    def kabbalah(self, store: Store, query):
+        return run_kabbalah(store, query.get("range", "24h"), self.server.outdoor_region, self.server.home)
 
 
 def serve(
