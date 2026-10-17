@@ -1,6 +1,8 @@
 Does Blueair cloud only store a week of data? (On 2026-10-17 it returned 14 days of hourly means; longer not tried.)
 Online DB
 Add CLI endpoint
+Provenance and referneces for the occult analysis
+LICENSE
 
 More data:
 Google Health
