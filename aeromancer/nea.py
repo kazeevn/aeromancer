@@ -49,29 +49,36 @@ def default_config_path() -> Path:
 
 
 def load_region(path: str | os.PathLike) -> str | None:
-    """The home region, or None when there is no config file."""
+    """The home region, or None when the config file names none."""
     try:
         with Path(path).open("rb") as f:
             data = tomllib.load(f)
     except FileNotFoundError:
         return None
-    region = data.get("region")
+    if "region" not in data:  # it may give only home's position, for the weather
+        return None
+    region = data["region"]
     if region not in REGIONS:
         raise ValueError(f"{path}: region must be one of {', '.join(REGIONS)}, not {region!r}")
     return region
 
 
-def fetch(date: dt.date | None = None) -> dict:
-    """The latest reading, or every reading of ``date`` (Singapore time)."""
-    url = URL if date is None else f"{URL}?date={date.isoformat()}"
+def fetch_json(url: str) -> dict | None:
+    """A data.gov.sg response, or None for 404, which it answers for a day with no readings yet."""
     request = urllib.request.Request(url, headers={"User-Agent": "aeromancer"})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             return json.load(response)
     except urllib.error.HTTPError as e:
-        if e.code == 404:  # a day with no readings yet
-            return {"code": 0, "data": {"items": []}}
+        if e.code == 404:
+            return None
         raise
+
+
+def fetch(date: dt.date | None = None) -> dict:
+    """The latest reading, or every reading of ``date`` (Singapore time)."""
+    url = URL if date is None else f"{URL}?date={date.isoformat()}"
+    return fetch_json(url) or {"code": 0, "data": {"items": []}}
 
 
 def parse(data) -> list[Reading]:

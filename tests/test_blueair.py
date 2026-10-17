@@ -102,6 +102,7 @@ class BlueairTest(unittest.TestCase):
             for (ts, *_), upload in zip(pm, api.uploads):
                 self.assertLessEqual(abs(ts - upload[0]), blueair.SAMPLE_PERIOD)
             self.assertEqual(store.series("blueair_fan_speed", 0, now, 1), [(now, 2.0, 2.0, 2.0)])
+            self.assertEqual(store.series("blueair_auto_mode", 0, now, 1), [(now, 1.0, 1.0, 1.0)])
             count = store.count()
 
             # Nothing new: one cheap request, nothing stored.
@@ -114,7 +115,7 @@ class BlueairTest(unittest.TestCase):
             since = asyncio.run(blueair.poll_once(api, "A1", store, since))
             self.assertEqual((since, api.asked[-1]), (now + 305, 0))
             self.assertEqual(store.series("blueair_pm25", now + 1, now + 305, 1), [(now + 305, 42, 42, 42)])
-            self.assertEqual(store.count(), count + 6)
+            self.assertEqual(store.count(), count + 7)  # five sensors, fan speed, auto mode
 
             # Two uploads missed: the latest as is, the missed one from the averages.
             api.uploads += [[now + 610, 50, 21.0, 40, 100, 5], [now + 915, 60, 21.0, 40, 100, 5], [now + 1220, 70, 21.0, 40, 100, 5]]
@@ -152,7 +153,7 @@ class BlueairTest(unittest.TestCase):
             blueair.poll(Path(d) / "x.sqlite3", blueair.Config("user", "pass"), stop=stop)
             store = Store(Path(d) / "x.sqlite3")
             self.addCleanup(store.close)
-            self.assertEqual(store.count(), 6)
+            self.assertEqual(store.count(), 7)
         self.assertEqual([s.closed for s in sessions], [True, True])
 
 

@@ -9,7 +9,7 @@ that ends at the latest upload and starts ``seconds_ago`` before it, each
 stamped with its bucket's start; after a gap we fill in from those, up to a
 day back, restamped with the bucket's end. Points go into the same table as
 the CO2 meter's, as ``blueair_<sensor>`` (e.g. ``blueair_pm25``), plus the
-fan speed at the newest upload.
+fan speed and whether it is in auto mode (1 or 0) at the newest upload.
 
 Needs the optional ``blueair_api`` package (``pip install '.[blueair]'``)
 and the Blueair app login in ``~/.config/aeromancer/blueair.toml``::
@@ -141,6 +141,8 @@ async def poll_once(api, uuid: str, store: Store, since: float) -> float:
     attributes = await api.get_attributes(uuid)
     if "fan_speed" in attributes:
         readings.append(Reading(newest, PREFIX + "fan_speed", float(attributes["fan_speed"])))
+    if "mode" in attributes:  # "auto": the fan follows the sensor named by auto_mode_dependency ("pm"), else it is set by hand
+        readings.append(Reading(newest, PREFIX + "auto_mode", float(attributes["mode"] == "auto")))
     store.add(readings)
     log.debug("stored %d Blueair readings up to %s", len(readings), time.ctime(newest))
     return newest

@@ -50,6 +50,8 @@ class NeaTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "nea.toml"
             self.assertIsNone(nea.load_region(path))
+            path.write_text("latitude = 1.35\nlongitude = 103.85\n")
+            self.assertIsNone(nea.load_region(path))
             path.write_text('region = "south"\n')
             self.assertEqual(nea.load_region(path), "south")
             path.write_text('region = "Tampines"\n')

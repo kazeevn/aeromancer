@@ -5,7 +5,7 @@ from pathlib import Path
 
 from aeromancer import oracle
 from aeromancer.device import Reading
-from aeromancer.store import Store
+from aeromancer.store import Store, device_of
 
 START = 1_790_000_000.0
 
@@ -81,6 +81,35 @@ class StoreTest(unittest.TestCase):
             store.add([Reading(START, "op_71", 1.0), Reading(START, "op_6d", 2.0), Reading(START, "humidity", 3.0)])
             self.assertEqual(store.signal_names(), ["op_6d", "op_71"])
             store.close()
+
+    def test_placements(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = Store(Path(d) / "x.sqlite3")
+            self.assertIsNone(store.placement_at("zytemp", START))
+            store.place(0, "zytemp", "living room", "table")
+            store.place(0, "blueair", "bedroom")
+            wrong = store.place(START + 50, "zytemp", "bedroom", "on the purifier")
+            store.place(START + 100, "zytemp", "bedroom", "floor, by the intake")
+            self.assertEqual(store.placement_at("zytemp", START).room, "living room")
+            self.assertEqual(store.placement_at("zytemp", START + 60).spot, "on the purifier")
+            self.assertTrue(store.unplace(wrong))
+            self.assertFalse(store.unplace(wrong))
+            self.assertEqual(store.placement_at("zytemp", START + 60).room, "living room")
+            self.assertEqual(store.placement_at("zytemp", START + 100).spot, "floor, by the intake")
+            self.assertEqual(store.placement_at("blueair", START + 100).room, "bedroom")
+            store.place(START + 100, "zytemp", "bedroom", "floor, 10 cm from the intake")  # a correction
+            self.assertEqual(store.placement_at("zytemp", START + 100).spot, "floor, 10 cm from the intake")
+            self.assertEqual([p.device for p in store.placements()], ["zytemp", "blueair", "zytemp", "zytemp"])
+            self.assertEqual(len(store.placements("zytemp")), 3)
+            with self.assertRaises(ValueError):
+                store.place(START, "zytmp", "bedroom")
+            store.close()
+
+    def test_device_of(self):
+        self.assertEqual(device_of("co2"), "zytemp")
+        self.assertEqual(device_of("op_71"), "zytemp")
+        self.assertEqual(device_of("blueair_co2"), "blueair")
+        self.assertIsNone(device_of("nea_pm25_central"))
 
 
 if __name__ == "__main__":

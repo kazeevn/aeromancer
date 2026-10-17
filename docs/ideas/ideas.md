@@ -1,6 +1,10 @@
 Does Blueair cloud only store a week of data? (On 2026-10-17 it returned 14 days of hourly means; longer not tried.)
-Store device location provenance
+Online DB
 Add CLI endpoint
+
+Google Health
+Blutooth & WiFi devices
+SP power & water
 
 Put the zyTemp next to the purifier to study Blueair's eCO2 (see ../blueair-eco2.md).
 Put the meter on the purifier's intake side (right side), not by the outlet, since the outlet air
@@ -15,3 +19,7 @@ sanitizer near the intake for a minute, and expect a VOC/eCO2 spike within one o
 uploads. Best done while VOC sits near zero, as it did after 2026-10-17 18:17.
 
 Check which NEA region's outdoor PM2.5 best tracks the purifier's PM2.5 when windows are open.
+
+Infer the AC state from the indoor temperature against the outdoor one (`nea_temperature_*`): a
+room far below outdoor, or cooling faster than it would on its own, has the AC on. Check the
+inference against a few hand-noted AC on/off times before relying on it.

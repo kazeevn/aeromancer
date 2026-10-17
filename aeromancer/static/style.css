@@ -181,6 +181,7 @@ button:focus-visible, .chart svg:focus-visible {
 .key.zytemp { background: var(--series-meter); }
 .key.blueair { background: var(--series-blueair); }
 .key.outdoor { background: var(--series-outdoor); }
+.key-move { width: 0; height: 10px; border-left: 1px dashed var(--text-muted); vertical-align: -1px; }
 .key-retro { width: 12px; height: 10px; border-radius: 2px; background: var(--wash); box-shadow: inset 0 0 0 1px var(--border); vertical-align: -1px; }
 
 .chart { position: relative; height: 288px; transition: opacity 150ms; }
@@ -199,6 +200,8 @@ button:focus-visible, .chart svg:focus-visible {
 .ref text, .end-label, .retro-label { fill: var(--text-secondary); font-size: 11px; }
 .end-label { font-weight: 600; fill: var(--text-primary); font-size: 12px; }
 .retro rect { fill: var(--wash); }
+.move line { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 4 3; }
+.move-label { fill: var(--text-secondary); font-size: 11px; }
 .moon-mark { fill: var(--text-muted); stroke: var(--text-muted); stroke-width: 1.5; }
 .moon-mark.new { fill: var(--surface-1); }
 .panel-title {

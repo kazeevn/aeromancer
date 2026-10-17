@@ -75,12 +75,15 @@ The cloud keeps one point per 5 minutes, and after a gap the poller fetches
 what it missed, up to a day back. Points are stored as `blueair_pm25`,
 `blueair_pm10`, `blueair_pm1`, `blueair_voc`, `blueair_co2`,
 `blueair_temperature`, `blueair_humidity`, `blueair_all_pollution` (whichever
-the model has) and `blueair_fan_speed`.
+the model has), and with the newest point also the purifier's settings:
+`blueair_fan_speed` and `blueair_auto_mode` (1 when the fan follows the
+sensors, 0 when it is set by hand). The cloud keeps no history of the
+settings, so they are missing for any time the poller was down.
 
 For the systemd unit, point its `ExecStart` at
 `%h/projects/co2-monitor/.venv/bin/python3` so it finds the package.
 
-## Outdoor PM2.5 (Singapore)
+## Outdoor PM2.5 and weather (Singapore)
 
 Optionally, the recorder also fetches the outdoor PM2.5 that NEA measures,
 from [data.gov.sg](https://guide.data.gov.sg/developer-guide/real-time-apis).
@@ -100,6 +103,47 @@ gap; `python3 -m aeromancer nea` polls only NEA. All five regions are stored,
 as `nea_pm25_<region>`, each at the middle of the hour it averages; the
 dashboard charts yours. See
 [docs/outdoor-pm25.md](docs/outdoor-pm25.md) for why this source.
+
+### Outdoor weather
+
+Add home's position to the same file, and the recorder also stores what
+NEA's nearest weather stations measure:
+
+```toml
+latitude = 1.35   # two decimals (about 1 km) are plenty
+longitude = 103.85
+```
+
+Every 5 minutes it stores, from each of the 3 stations nearest to home, the
+air temperature (`nea_temperature_<station>`, °C), relative humidity
+(`nea_humidity_<station>`, %), rainfall (`nea_rain_<station>`, mm per
+5 minutes), and wind speed and direction (`nea_wind_speed_<station>`, m/s;
+`nea_wind_direction_<station>`, degrees it blows from), plus each station's
+name and position in the `stations` table. After a gap it fills in up to a
+day back, which takes several minutes, since data.gov.sg rate-limits
+requests. The dashboard charts the nearest station's temperature and
+humidity next to the indoor ones. Like the region, the position stays in
+the file.
+
+## Where the devices are
+
+Readings only mean something together with where the device was. Record
+each move when it happens (or with `--at` after the fact), as a room and a
+free-text spot precise enough to recreate it:
+
+```sh
+python3 -m aeromancer place zytemp "living room" table --at start   # since before recording began
+python3 -m aeromancer place blueair bedroom --at start
+python3 -m aeromancer place zytemp bedroom "floor, 10 cm from the purifier's right-side intake"
+python3 -m aeromancer place zytemp bedroom "..." --at "2026-10-17 21:30"   # local time; or just 21:30 for today
+python3 -m aeromancer placements    # the history, with ids
+python3 -m aeromancer unplace 3     # remove a mistaken record
+```
+
+Devices are `zytemp` (the meter's quantities) and `blueair` (`blueair_*`).
+A placement holds until the next one of the same device. They are stored
+in the `placements` table of the same database, and the dashboard marks
+each move on the charts.
 
 ## The dashboard
 

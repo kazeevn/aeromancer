@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import astro, nea, oracle
+from . import astro, nea, oracle, weather
 from .recorder import RecorderStatus
 from .store import Store
 
@@ -66,11 +66,12 @@ def run_oracle(store: Store, range_text: str) -> dict:
 class DashboardServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, db_path, recorder: RecorderStatus | None, outdoor_region: str | None = None):
+    def __init__(self, address, db_path, recorder: RecorderStatus | None, outdoor_region: str | None = None, home=None):
         super().__init__(address, Handler)
         self.db_path = db_path
         self.recorder = recorder
         self.outdoor_region = outdoor_region
+        self.home = home
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -125,6 +126,8 @@ class Handler(BaseHTTPRequestHandler):
         # Under a generic name, so the public dashboard does not say where home is.
         region = self.server.outdoor_region
         series["outdoor_pm25"] = store.series(nea.PREFIX + region, start, end, bucket) if region else []
+        for kind in ("temperature", "humidity"):
+            series["outdoor_" + kind] = weather.home_series(store, self.server.home, kind, start, end, bucket)
         return {
             "start": start,
             "end": end,
@@ -132,13 +135,20 @@ class Handler(BaseHTTPRequestHandler):
             "series": series,
             "retrograde": astro.mercury_retrograde_intervals(start, end),
             "lunations": astro.lunations(start, end),
+            "moves": [
+                {"ts": m.ts, "device": m.device, "room": m.room, "spot": m.spot}
+                for m in store.placements()
+                if start < m.ts <= end
+            ],
         }
 
     def oracle(self, store: Store, query):
         return run_oracle(store, query.get("range", "24h"))
 
 
-def serve(db_path, host: str, port: int, recorder: RecorderStatus | None = None, outdoor_region: str | None = None) -> None:
-    server = DashboardServer((host, port), db_path, recorder, outdoor_region)
+def serve(
+    db_path, host: str, port: int, recorder: RecorderStatus | None = None, outdoor_region: str | None = None, home=None
+) -> None:
+    server = DashboardServer((host, port), db_path, recorder, outdoor_region, home)
     log.info("dashboard at http://%s:%d/", host, port)
     server.serve_forever()

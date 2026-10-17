@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
@@ -16,13 +17,43 @@ from .device import Reading
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS readings (
     ts       REAL NOT NULL,  -- unix time, seconds
-    quantity TEXT NOT NULL,  -- co2 | temperature | humidity | op_XX (undocumented codes) | blueair_<sensor> | nea_pm25_<region>
+    quantity TEXT NOT NULL,  -- co2 | temperature | humidity | op_XX (undocumented codes) | blueair_<sensor> | nea_pm25_<region> | nea_<weather>_<station>
     value    REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS readings_quantity_ts ON readings (quantity, ts);
+CREATE TABLE IF NOT EXISTS placements (
+    id     INTEGER PRIMARY KEY,
+    ts     REAL NOT NULL,  -- unix time the device got here; 0 = since before recording began
+    device TEXT NOT NULL,  -- see DEVICES
+    room   TEXT NOT NULL,
+    spot   TEXT NOT NULL   -- free text: where in the room, height, what is nearby
+);
+CREATE TABLE IF NOT EXISTS stations (  -- outdoor weather stations, as nea_<kind>_<id> names them
+    id        TEXT PRIMARY KEY,
+    name      TEXT NOT NULL,
+    latitude  REAL NOT NULL,
+    longitude REAL NOT NULL
+);
 """
 
 QUANTITIES = ("co2", "temperature", "humidity")
+DEVICES = ("zytemp", "blueair")
+
+
+def device_of(quantity: str) -> str | None:
+    """The device that measured ``quantity``; None for outdoor data, which has no placement."""
+    if quantity.startswith("nea_"):
+        return None
+    return "blueair" if quantity.startswith("blueair_") else "zytemp"
+
+
+@dataclass(frozen=True)
+class Placement:
+    id: int
+    ts: float
+    device: str
+    room: str
+    spot: str
 
 
 def default_path() -> Path:
@@ -50,6 +81,15 @@ class Store:
                 "INSERT INTO readings (ts, quantity, value) VALUES (?, ?, ?)",
                 ((r.ts, r.quantity, r.value) for r in readings),
             )
+
+    def add_stations(self, stations: Iterable[tuple[str, str, float, float]]) -> None:
+        """``(id, name, latitude, longitude)``, replacing what was known of each."""
+        with self.db:
+            self.db.executemany("INSERT OR REPLACE INTO stations (id, name, latitude, longitude) VALUES (?, ?, ?, ?)", stations)
+
+    def stations(self) -> dict[str, tuple[float, float]]:
+        """Each station's ``(latitude, longitude)``."""
+        return {i: (lat, lon) for i, lat, lon in self.db.execute("SELECT id, latitude, longitude FROM stations")}
 
     def span(self) -> tuple[float, float] | None:
         first, last = self.db.execute("SELECT MIN(ts), MAX(ts) FROM readings").fetchone()
@@ -100,3 +140,32 @@ class Store:
             """,
             (quantity, start, end, bucket),
         ).fetchall()
+
+    def place(self, ts: float, device: str, room: str, spot: str = "") -> int:
+        """Record that ``device`` is in ``room`` at ``spot`` from ``ts`` on; returns the record's id."""
+        if device not in DEVICES:
+            raise ValueError(f"unknown device {device!r}; expected one of {', '.join(DEVICES)}")
+        with self.db:
+            return self.db.execute(
+                "INSERT INTO placements (ts, device, room, spot) VALUES (?, ?, ?, ?)", (ts, device, room, spot)
+            ).lastrowid
+
+    def unplace(self, id: int) -> bool:
+        with self.db:
+            return self.db.execute("DELETE FROM placements WHERE id = ?", (id,)).rowcount > 0
+
+    def placements(self, device: str | None = None) -> list[Placement]:
+        """Every placement, in time order; of one time, the one recorded last wins and comes last."""
+        rows = self.db.execute(
+            "SELECT id, ts, device, room, spot FROM placements WHERE ?1 IS NULL OR device = ?1 ORDER BY ts, id",
+            (device,),
+        ).fetchall()
+        return [Placement(*row) for row in rows]
+
+    def placement_at(self, device: str, ts: float) -> Placement | None:
+        """Where ``device`` was at ``ts``, or None if nobody recorded it."""
+        row = self.db.execute(
+            "SELECT id, ts, device, room, spot FROM placements WHERE device = ? AND ts <= ? ORDER BY ts DESC, id DESC LIMIT 1",
+            (device, ts),
+        ).fetchone()
+        return Placement(*row) if row else None

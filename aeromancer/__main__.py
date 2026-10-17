@@ -1,8 +1,9 @@
-"""Command line: ``python -m aeromancer {run,record,blueair,nea,serve,oracle,simulate}``."""
+"""Command line: ``python -m aeromancer {run,record,blueair,nea,serve,place,placements,unplace,oracle,simulate}``."""
 
 from __future__ import annotations
 
 import argparse
+import datetime
 import logging
 import math
 import random
@@ -12,10 +13,10 @@ import time
 import tomllib
 from pathlib import Path
 
-from . import blueair, nea, server
+from . import blueair, nea, server, weather
 from .device import Reading
 from .recorder import record, start_in_background
-from .store import Store, default_path
+from .store import DEVICES, Store, default_path
 
 
 def start_blueair(args) -> None:
@@ -40,19 +41,30 @@ def home_region(args) -> str | None:
         return None
 
 
-def start_nea(args) -> str | None:
-    """Poll NEA's outdoor PM2.5 if a home region is configured; return the region."""
-    region = home_region(args)
+def home_position(args) -> tuple[float, float] | None:
+    """Home's latitude and longitude from the config file, or None (logged) when there are none or they are bad."""
+    try:
+        return weather.load_home(args.nea_config)
+    except (ValueError, tomllib.TOMLDecodeError) as e:
+        logging.error("%s; no outdoor weather", e)
+        return None
+
+
+def start_nea(args) -> tuple[str | None, tuple[float, float] | None]:
+    """Poll NEA's outdoor PM2.5 and weather for what is configured; return the region and home's position."""
+    region, home = home_region(args), home_position(args)
     if region is not None:
         nea.start_in_background(args.db)
-    return region
+    if home is not None:
+        weather.start_in_background(args.db, home)
+    return region, home
 
 
 def cmd_run(args):
     start_blueair(args)
-    region = start_nea(args)
+    region, home = start_nea(args)
     status, _ = start_in_background(args.db, device=args.device, min_interval=args.min_interval)
-    server.serve(args.db, args.host, args.port, recorder=status, outdoor_region=region)
+    server.serve(args.db, args.host, args.port, recorder=status, outdoor_region=region, home=home)
 
 
 def cmd_record(args):
@@ -74,15 +86,61 @@ def cmd_blueair(args):
 
 def cmd_nea(args):
     try:
-        if nea.load_region(args.nea_config) is None:
-            sys.exit(f"put the home region in {args.nea_config} (see README)")
+        region, home = nea.load_region(args.nea_config), weather.load_home(args.nea_config)
     except (ValueError, tomllib.TOMLDecodeError) as e:
         sys.exit(str(e))
+    if region is None and home is None:
+        sys.exit(f"put the home region or position in {args.nea_config} (see README)")
+    if region is None:
+        return weather.poll(args.db, home)
+    if home is not None:
+        weather.start_in_background(args.db, home)
     nea.poll(args.db)
 
 
 def cmd_serve(args):
-    server.serve(args.db, args.host, args.port, outdoor_region=home_region(args))
+    server.serve(args.db, args.host, args.port, outdoor_region=home_region(args), home=home_position(args))
+
+
+def parse_when(text: str) -> float:
+    """'start' -> 0 (since before recording began); local 'YYYY-MM-DD HH:MM' or 'HH:MM' (today) -> unix time."""
+    if text == "start":
+        return 0.0
+    try:
+        when = datetime.datetime.fromisoformat(text)
+    except ValueError:
+        try:
+            clock = datetime.time.fromisoformat(text)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"not 'start', a date and time or a time of day: {text!r}") from None
+        when = datetime.datetime.combine(datetime.date.today(), clock)
+    return when.timestamp()  # naive means local time
+
+
+def describe_when(ts: float) -> str:
+    return "since the start" if ts == 0 else datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+
+
+def cmd_place(args):
+    store = Store(args.db)
+    if args.at > time.time() + 60:
+        sys.exit("that is in the future; record the move when it happens")
+    store.place(args.at, args.device, args.room, args.spot)
+    cmd_placements(args)
+
+
+def cmd_placements(args):
+    store = Store(args.db)
+    placements = store.placements(args.device)
+    if not placements:
+        print("no placements recorded")
+    for p in placements:
+        print(f"{p.id:>4}  {describe_when(p.ts):<16}  {p.device:<7}  {p.room}" + (f": {p.spot}" if p.spot else ""))
+
+
+def cmd_unplace(args):
+    if not Store(args.db).unplace(args.id):
+        sys.exit(f"no placement {args.id}")
 
 
 def cmd_oracle(args):
@@ -146,7 +204,7 @@ def main(argv=None):
 
     def outdoor(p):
         p.add_argument(
-            "--nea-config", type=Path, default=nea.default_config_path(), help="NEA home region (default: %(default)s)"
+            "--nea-config", type=Path, default=nea.default_config_path(), help="NEA home region and position (default: %(default)s)"
         )
 
     def serving(p):
@@ -170,7 +228,7 @@ def main(argv=None):
     purifier(p)
     p.set_defaults(func=cmd_blueair)
 
-    p = sub.add_parser("nea", help="poll NEA's outdoor PM2.5 (Singapore) only")
+    p = sub.add_parser("nea", help="poll NEA's outdoor PM2.5 and weather (Singapore) only")
     outdoor(p)
     p.set_defaults(func=cmd_nea)
 
@@ -178,6 +236,32 @@ def main(argv=None):
     serving(p)
     outdoor(p)
     p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser(
+        "place",
+        help="record where a device is",
+        description="Record that a device is somewhere from now (or --at) on. To correct a mistake, "
+        "remove it with unplace and record it again.",
+    )
+    p.add_argument("device", choices=DEVICES)
+    p.add_argument("room", help="e.g. bedroom")
+    p.add_argument("spot", nargs="?", default="", help="where in the room, e.g. 'floor, 10 cm from the intake'")
+    p.add_argument(
+        "--at",
+        type=parse_when,
+        default=time.time(),
+        help="when it got there: 'YYYY-MM-DD HH:MM' or 'HH:MM' local time, or 'start' for since before recording began "
+        "(default: now)",
+    )
+    p.set_defaults(func=cmd_place)
+
+    p = sub.add_parser("placements", help="list where the devices have been")
+    p.add_argument("device", nargs="?", choices=DEVICES)
+    p.set_defaults(func=cmd_placements)
+
+    p = sub.add_parser("unplace", help="remove a mistaken placement record")
+    p.add_argument("id", type=int, help="as listed by placements")
+    p.set_defaults(func=cmd_unplace)
 
     p = sub.add_parser("oracle", help="print the pseudo-scientific analysis")
     p.add_argument("--range", default="24h", help="e.g. 90m, 24h, 7d, all")

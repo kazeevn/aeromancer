@@ -125,7 +125,7 @@ function timeTicks(start, end, count) {
  * panel: { title, height, series, keys, tick, format, minPad, floor, refs, ticks }
  * series: { label, name, color, rows: [ts, mean, min, max][], band, interval, area }
  *   area: filled down to the axis, behind the lines that follow it
- * opts: { retrograde, lunations, describe }
+ * opts: { retrograde, lunations, moves, describe }
  */
 function stackedChart(container, panels, opts) {
   container.replaceChildren();
@@ -246,6 +246,17 @@ function stackedChart(container, panels, opts) {
   for (const { t, label } of timeTicks(start, end, Math.max(2, Math.floor(pw / 96)))) {
     svg("text", { x: x(t), y: H - 6, "text-anchor": "middle" }, axis).textContent = label;
   }
+  // A device was moved here: its readings before and after measure different air.
+  const DEVICE_NAMES = { zytemp: "zyTemp", blueair: "Blueair" };
+  for (const mv of opts.moves || []) {
+    const g = svg("g", { class: "move" }, root);
+    const xx = Math.round(x(mv.ts)) + 0.5;
+    svg("line", { x1: xx, x2: xx, y1: plotTop, y2: plotBottom }, g);
+    const where = mv.spot ? `${mv.room}, ${mv.spot}` : mv.room;
+    const left = xx > m.left + pw / 2;  // keep the label inside the plot
+    svg("text", { x: left ? xx - 4 : xx + 4, y: plotTop + 12, "text-anchor": left ? "end" : "start", class: "move-label" }, g)
+      .textContent = `${DEVICE_NAMES[mv.device] || mv.device} → ${where}`;
+  }
   for (const [t, kind] of opts.lunations || []) {
     const c = svg("circle", { cx: x(t), cy: 9, r: 4.5, class: `moon-mark ${kind}` }, root);
     svg("title", {}, c).textContent = `${kind === "full" ? "Full" : "New"} moon, ${fmtFull.format(new Date(t * 1000))}`;
@@ -339,13 +350,15 @@ function hideTooltip() { tooltip.hidden = true; }
 
 const BLUEAIR_INTERVAL = 300;  // seconds between the purifier's uploads
 const OUTDOOR_INTERVAL = 3600;  // NEA publishes hourly means, stamped mid-hour
+const WEATHER_INTERVAL = 300;  // one point per 5 minutes from the nearest NEA weather station
 
 function renderCharts() {
   if (!state.series) return;
-  const { series: s, retrograde, lunations } = state.series;
+  const { series: s, retrograde, lunations, moves } = state.series;
   const style = getComputedStyle(document.documentElement);
   const color = name => style.getPropertyValue(`--series-${name}`).trim();
   const meter = (label, rows) => ({ label, name: "zyTemp", color: color("meter"), rows, band: true });
+  const outdoor = (label, rows) => ({ label, name: "NEA outdoor", color: color("outdoor"), rows: rows || [], interval: WEATHER_INTERVAL });
   const blueair = (label, rows, extra = {}) => ({ label, name: "Blueair", color: color("blueair"), rows, interval: BLUEAIR_INTERVAL, ...extra });
   const int = { tick: v => fmtInt.format(v) };
   const one = { tick: v => fmt1.format(v) };
@@ -380,19 +393,21 @@ function renderCharts() {
     },
   ];
   document.getElementById("outdoor-key").hidden = !s.outdoor_pm25?.length;
-  stackedChart(document.getElementById("air-chart"), air, { retrograde, lunations, describe: describe("Air", air) });
+  stackedChart(document.getElementById("air-chart"), air, { retrograde, lunations, moves, describe: describe("Air", air) });
 
   const climate = [
     {
       title: "Temperature, °C", height: 150, minPad: 0.3, ...one, format: v => `${fmt1.format(v)} °C`,
-      series: [meter("Temperature zyTemp", s.temperature), blueair("Temperature Blueair", s.blueair_temperature)],
+      series: [meter("Temperature zyTemp", s.temperature), blueair("Temperature Blueair", s.blueair_temperature), outdoor("Temperature outdoor", s.outdoor_temperature)]
+        .filter((x, i) => x.rows.length || i < 2),
     },
     {
       title: "Relative humidity, %", height: 110, minPad: 2, ...int, format: v => `${fmtInt.format(v)} %`,
-      series: [meter("Humidity zyTemp", s.humidity), blueair("Humidity Blueair", s.blueair_humidity)].filter(x => x.rows.length),
+      series: [meter("Humidity zyTemp", s.humidity), blueair("Humidity Blueair", s.blueair_humidity), outdoor("Humidity outdoor", s.outdoor_humidity)].filter(x => x.rows.length),
     },
   ];
-  stackedChart(document.getElementById("climate-chart"), climate, { retrograde, describe: describe("Climate", climate) });
+  document.getElementById("climate-outdoor-key").hidden = !s.outdoor_temperature?.length && !s.outdoor_humidity?.length;
+  stackedChart(document.getElementById("climate-chart"), climate, { retrograde, moves, describe: describe("Climate", climate) });
 }
 
 function renderTiles() {
