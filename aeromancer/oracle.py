@@ -11,6 +11,7 @@ import bisect
 import cmath
 import hashlib
 import math
+import random
 import statistics
 from datetime import datetime
 
@@ -110,10 +111,67 @@ STRANGERS_BELOW = 0.3  # a guest whose best |r| is below this talks to no one
 
 # The household choir
 CHOIR_POINTS = 256  # a power of two, for the FFT
-MIDDLE_C = 261.63  # Hz; the middle voice is transposed to sing near it
-CHOIR_RANGE = (65.41, 1046.5)  # Hz, C2 to C6: what a choir can sing
-REGISTERS = ((130.81, "bass"), (196.0, "baritone"), (293.66, "tenor"), (440.0, "alto"), (math.inf, "soprano"))
+MIDDLE_C = 261.63  # Hz; the middle rhythm is transposed to sound near it, to find the tonic
 EARTH_OCTAVES = 6  # the Schumann resonance, raised into the audible range
+NOW_SECONDS = 3600  # the air is judged by its last hour
+# How each guest's air feels: (comfortable from, to, how far beyond makes it unbearable, weight).
+COMFORT = {
+    "co2": (0, 700, 1000, 1.0),  # ppm; 1000 is where a window is due
+    "temperature": (20, 27, 4, 0.6),  # °C
+    "humidity": (40, 60, 20, 0.4),  # %
+    "blueair_pm25": (0, 12, 43, 1.0),  # µg/m³, from the WHO's yearly guideline to NEA's band I
+    "blueair_voc": (0, 300, 1900, 0.5),  # ppb
+    "blueair_temperature": (20, 27, 4, 0.6),
+    "blueair_humidity": (40, 60, 20, 0.4),
+    "outdoor_pm25": (0, 12, 88, 1.0),  # µg/m³; 100 is unhealthy for everyone
+    "outdoor_temperature": (20, 31, 5, 0.5),
+    "outdoor_humidity": (0, 85, 15, 0.3),
+    "outdoor_wind_speed": (0, 8, 9, 0.4),  # m/s; 17 is a gale
+    "outdoor_rain": (0, 0, 16, 0.3),  # mm/h; 16 is a downpour
+}
+UNITS = {"co2": "ppm", "pm25": "µg/m³", "voc": "ppb", "temperature": "°C", "humidity": "%", "fan_speed": "", "wind_speed": "m/s", "rain": "mm/h"}
+BANDS = ((1 / 3, "clear"), (2 / 3, "middling"), (math.inf, "heavy"))
+# The mood, by how heavy the air is inside (rows) and outside (columns): (name, reading).
+MOODS = (
+    (
+        ("Serenade", "Clear air within and without: the house sings with its windows open."),
+        ("Pastorale", "A clear house under a middling sky: a country song with clouds in it."),
+        ("Sanctuary", "The world outside is grim and the house holds it off: a hymn sung behind closed shutters."),
+    ),
+    (
+        ("Invitation", "The world sings brighter than the house, and calls to it."),
+        ("Nocturne", "Middling air on both sides of the glass: a night piece, neither sad nor glad."),
+        ("Vigil", "The house strains to keep out a heavy world: a song for the watch."),
+    ),
+    (
+        ("Longing", "Heavy air within, clear air without: the house sings of the open window it lacks."),
+        ("Lament", "The house is heavy and the world no comfort: a lament over a ground."),
+        ("Dirge", "Heavy air within and without, which Plato would have sung in Mixolydian, had he been asked."),
+    ),
+)
+MOODS_ALONE = (  # with no word from outside
+    ("Serenade", "Clear air within: the house sings to itself."),
+    ("Nocturne", "Middling air within: a night piece, neither sad nor glad."),
+    ("Dirge", "Heavy air within: a song for the end of a long patrol."),
+)
+PHRASE_BEATS = 8
+# Each guest's leitmotif: (theme, scale degree it sings around, octave, beats a note, change in the signal a step up).
+THEMES = {
+    "co2": ("breath", 0, 4, 2, 40),
+    "temperature": ("warmth", 4, 4, 1, 0.3),
+    "humidity": ("damp", 2, 3, 4, 2),
+    "blueair_pm25": ("dust", 0, 5, 0.5, 3),
+    "blueair_voc": ("vapour", 2, 4, 2, 150),
+    "blueair_temperature": ("warmth", 2, 5, 1, 0.3),
+    "blueair_humidity": ("damp", 4, 3, 4, 2),
+    "blueair_fan_speed": ("ground", 0, 2, 2, None),
+    "outdoor_pm25": ("haze", 0, 3, 4, 10),
+    "outdoor_temperature": ("warmth", 4, 4, 1, 0.3),
+    "outdoor_humidity": ("damp", 2, 3, 4, 2),
+    "outdoor_wind_speed": ("harp", 0, 2, 1, None),
+    "outdoor_rain": ("rain", 0, 6, 1, None),
+}
+CADENCE_BEATS = 4
 
 # Souls present
 OUTDOOR_CO2 = 425.0  # ppm, the planet's background in 2026
@@ -877,16 +935,9 @@ def _key(midis: list[int]) -> tuple[int, str]:
     return max(((tonic, mode) for tonic in range(12) for mode in ("major", "minor")), key=fit)
 
 
-def _kindred(semitones: int) -> str:
-    if semitones == 0:
-        return "sing in unison"
-    if semitones % 12 == 0:
-        return "sing an octave apart"
-    return f"sing a {lore.INTERVALS[semitones % 12]} apart"
-
-
-def choir(guests: dict[str, list]) -> dict | None:
-    """Each guest sings at the centre of mass of its spectrum, all raised by the same number of octaves."""
+def _tonic(guests: dict[str, list]) -> int | None:
+    """The home note of the household's rhythms: each guest at the centre of mass of its spectrum, all raised
+    by the same number of octaves, and the key they fit best."""
     centroids = {}
     for name, points in guests.items():
         span = points[-1][0] - points[0][0]
@@ -898,67 +949,238 @@ def choir(guests: dict[str, list]) -> dict | None:
     if not centroids:
         return None
     octaves = round(math.log2(MIDDLE_C / statistics.median(centroids.values())))
-    voices = []
-    for name, hz in sorted(centroids.items(), key=lambda kv: kv[1]):
-        sung = hz * 2**octaves
-        while sung < CHOIR_RANGE[0]:
-            sung *= 2
-        while sung > CHOIR_RANGE[1]:
-            sung /= 2
-        pitch = 69 + 12 * math.log2(sung / 440)
-        midi = round(pitch)
-        voices.append(
-            {
-                "id": name,
-                "label": _named(name)[0],
-                "group": _named(name)[2],
-                "period_s": 1 / hz,
-                "hz": sung,
-                "midi": midi,
-                "note": lore.NOTES[midi % 12],
-                "octave": midi // 12 - 1,
-                "cents": (pitch - midi) * 100,
-                "register": next(r for top, r in REGISTERS if sung < top),
-            }
-        )
-    tonic, mode = _key([v["midi"] for v in voices])
-    key = f"{(lore.MAJOR_KEYS if mode == 'major' else lore.MINOR_KEYS)[tonic]} {mode}"
+    return _key([round(69 + 12 * math.log2(hz * 2**octaves / 440)) for hz in centroids.values()])[0]
+
+
+def _unit(name: str) -> str:
+    return next(unit for suffix, unit in UNITS.items() if name.endswith(suffix))
+
+
+def _amount(value: float, unit: str) -> str:
+    digits = 1 if unit in ("°C", "m/s", "mm/h") else 0
+    return f"{value:.{digits}f} {unit}" if unit != "%" else f"{value:.0f}%"
+
+
+def _now(name: str, points: list[tuple[float, float]]) -> float:
+    """The guest over the last hour: its mean, or for the rain, how much fell."""
+    recent = [v for t, v in points if t >= points[-1][0] - NOW_SECONDS]
+    return sum(recent) * 3600 / NOW_SECONDS if name == "outdoor_rain" else statistics.fmean(recent)
+
+
+def _distress(name: str, value: float) -> float:
+    """0 where the guest is comfortable, rising to 1 where it is unbearable."""
+    low, high, width, _ = COMFORT[name]
+    return min(1.0, max(low - value, value - high, 0) / width)
+
+
+def _cells(points: list[tuple[float, float]], n: int, rate: bool = False) -> list[float]:
+    """``points`` in ``n`` equal cells across their span: each cell's mean, or with ``rate`` its total an hour.
+    An empty cell keeps the mean before it, or has no rate."""
+    t0 = points[0][0]
+    width = max((points[-1][0] - t0) / n, 300.0 if rate else 1e-9)
+    sums, counts = [0.0] * n, [0] * n
+    for t, v in points:
+        i = min(n - 1, int((t - t0) / width))
+        sums[i] += v
+        counts[i] += 1
+    out = []
+    for s, c in zip(sums, counts):
+        out.append(s * 3600 / width if rate else s / c if c else out[-1])
+    return out
+
+
+def _pitch(mode: int, tonic: int, octave: int, degree: int) -> int:
+    """The MIDI note of a scale ``degree`` of ``mode`` on ``tonic``, counted from the tonic in ``octave``."""
+    return 12 * (octave + 1) + tonic + lore.MODES[mode][1][degree % 7] + 12 * (degree // 7)
+
+
+def _air(where: str, guests: dict[str, list]) -> dict | None:
+    """How heavy the air is ``where`` ("inside" or "outside"), and the mode it sings in for that."""
+    factors = []
+    for name, points in guests.items():
+        if name in COMFORT and (GUESTS[name][2] == "outdoor") == (where == "outside"):
+            value = _now(name, points)
+            label, _, group = GUESTS[name]
+            factors.append({"id": name, "label": label, "group": group, "value": value, "unit": _unit(name), "distress": _distress(name, value)})
+    if not factors:
+        return None
+    weight = {f["id"]: COMFORT[f["id"]][3] for f in factors}
+    worst = max(factors, key=lambda f: f["distress"] * weight[f["id"]])
+    mean = sum(f["distress"] * weight[f["id"]] for f in factors) / sum(weight.values())
+    distress = 0.7 * worst["distress"] * weight[worst["id"]] + 0.3 * mean  # the worst of it dominates
+    band = next(i for i, (top, _) in enumerate(BANDS) if distress < top)
+    mode = min(6, int(distress * 7))
+    return {
+        "id": where,
+        "distress": distress,
+        "band": band,
+        "band_name": BANDS[band][1],
+        "mode": mode,
+        "mode_name": lore.MODES[mode][0],
+        "worst": worst["id"] if worst["distress"] > 0 else None,
+        "factors": factors,
+        "shift": -12 if band == 2 else 0,  # heavy air sinks an octave
+    }
+
+
+def _phrase(name: str, points: list, air: dict, tonic: int, rng) -> list[list[float]]:
+    """``name``'s leitmotif, ``[beat, MIDI note, beats, loudness]`` for each note: the line it traced over the window."""
+    theme, degree, octave, beats, step = THEMES[name]
+    mode, shift = air["mode"], air["shift"]
+    loud = 0.55 + 0.45 * _distress(name, _now(name, points)) if name in COMFORT else 0.6  # who suffers most sings loudest
+    notes = []
+    if theme == "ground":  # the fan's ostinato, a pulse a beat for each step of its speed, on the tonic and the fifth below
+        for i, speed in enumerate(_cells(points, round(PHRASE_BEATS / beats))):
+            pulses = max(0, min(3, round(speed)))
+            for j in range(pulses):
+                notes.append([i * beats + j * beats / pulses, _pitch(mode, tonic, octave, 0 if j % 2 == 0 else -3), 0.8 * beats / pulses, loud])
+    elif theme == "harp":  # the wind plucks the harmonics of the tonic, more and higher as it blows harder
+        for i, speed in enumerate(_cells(points, PHRASE_BEATS)):
+            plucks = max(0, min(4, round(speed / 1.5)))
+            for j in range(plucks):
+                harmonic = rng.randint(2, min(12, 3 + round(speed * 2)))
+                notes.append([i + j / plucks, 12 * (octave + 1) + tonic + 12 * math.log2(harmonic), 3, 0.3 + 0.05 * min(speed, 8)])
+    elif theme == "rain":  # a drop for every two-thirds of a millimetre an hour, on the mode's pentatonic notes
+        for i, mm in enumerate(_cells(points, PHRASE_BEATS, rate=True)):
+            for _ in range(max(0, min(6, round(mm * 1.5)))):
+                notes.append([i + rng.random(), _pitch(mode, tonic, octave, rng.choice((0, 1, 2, 4, 5))) + shift, 0.25, 0.4])
+    else:  # a melody that rises a scale step for every ``step`` the guest rose
+        values = _cells(points, round(PHRASE_BEATS / beats))
+        centre = statistics.fmean(values)
+        length = beats * (0.4 if theme == "dust" else 1)
+        for i, v in enumerate(values):
+            notes.append([i * beats, _pitch(mode, tonic, octave, degree + max(-5, min(5, round((v - centre) / step)))) + shift, length, loud])
+    return sorted(notes)
+
+
+def choir(guests: dict[str, list]) -> dict | None:
+    """The household sings its air: each guest a leitmotif tracing its own line, inside and outside each in the mode
+    their comfort earns, on the tonic of the household's rhythms."""
+    airs = {where: air for where in ("inside", "outside") if (air := _air(where, guests))}
+    voiced = [name for name in GUESTS if name in guests and name in THEMES]
+    if not voiced:
+        return None
+    for where in ("inside", "outside"):  # a fan or the rain alone still sings, in the plainest mode
+        if where not in airs and any((GUESTS[n][2] == "outdoor") == (where == "outside") for n in voiced):
+            airs[where] = {"id": where, "distress": 0.0, "band": 0, "band_name": BANDS[0][1], "mode": 1, "mode_name": "Ionian", "worst": None, "factors": [], "shift": 0}
     earth_hz = SCHUMANN_HZ * 2**EARTH_OCTAVES
     earth_pitch = 69 + 12 * math.log2(earth_hz / 440)
+    found = _tonic(guests)
+    tonic = round(earth_pitch) % 12 if found is None else found
+    for air in airs.values():
+        spelling = lore.MAJOR_KEYS if air["mode"] <= 2 else lore.MINOR_KEYS
+        air["key"] = f"{spelling[tonic]} {air['mode_name']}"
+    inside, outside = airs.get("inside"), airs.get("outside")
+
+    # The house sings first, then the world, then both; a lone side sings its phrase twice. Each ends on its chord.
+    if inside and outside:
+        sections = [("The house", "inside"), ("The world", "outside"), ("Together", None)]
+    else:
+        sections = [("The house" if inside else "The world", None), ("Again", None)]
+    rng = random.Random(_seed("choir", round(max(p[-1][0] for p in guests.values()) / 3600)))
+    themes = []
+    for name in voiced:
+        where = "outside" if GUESTS[name][2] == "outdoor" else "inside"
+        phrase = _phrase(name, guests[name], airs[where], tonic, rng)
+        notes = [[s * PHRASE_BEATS + b, m, d, v] for s, (_, sings) in enumerate(sections) if sings in (where, None) for b, m, d, v in phrase]
+        value = _now(name, guests[name])
+        themes.append(
+            {
+                "id": name,
+                "label": GUESTS[name][0],
+                "group": GUESTS[name][2],
+                "layer": where,
+                "theme": THEMES[name][0],
+                "value": value,
+                "unit": _unit(name),
+                "distress": _distress(name, value) if name in COMFORT else None,
+                "notes": notes,
+            }
+        )
+    end = len(sections) * PHRASE_BEATS
+    for air in airs.values():
+        chord = [_pitch(air["mode"], tonic, 3, d) + air["shift"] for d in (0, 4, 7, 9)]  # tonic, fifth, octave, tenth
+        themes.append(
+            {
+                "id": f"chord_{air['id']}",
+                "label": "The house's chord" if air["id"] == "inside" else "The world's chord",
+                "group": "sky" if air["id"] == "inside" else "outdoor",
+                "layer": air["id"],
+                "theme": "chord",
+                "value": None,
+                "unit": "",
+                "distress": None,
+                "notes": [[end, m, CADENCE_BEATS, 0.5] for m in chord],
+            }
+        )
+
+    d_in = inside["distress"] if inside else 0.0
+    d_out = outside["distress"] if outside else 0.0
+    bpm = round(88 - 30 * d_in - 10 * d_out)
+    _, marking, gloss = next(t for t in lore.TEMPI if bpm < t[0])
+    if inside and outside:
+        mood, reading = MOODS[inside["band"]][outside["band"]]
+    else:
+        mood, reading = MOODS_ALONE[(inside or outside)["band"]]
+    home = inside or outside
     earth = {
         "hz": earth_hz,
         "note": lore.NOTES[round(earth_pitch) % 12],
         "cents": (earth_pitch - round(earth_pitch)) * 100,
-        "in_key": (round(earth_pitch) - tonic) % 12 in (lore.MAJOR_SCALE if mode == "major" else lore.MINOR_SCALE),
+        "in_key": (round(earth_pitch) - tonic) % 12 in lore.MODES[home["mode"]][1],
     }
-    singing = f"{len(voices)} voices sing" if len(voices) > 1 else "One voice sings"
-    lines = [f"{singing}, each at the centre of mass of its spectrum, raised {octaves} octaves together so that the intervals stay true."]
-    pairs = [(a, b, abs(a["midi"] - b["midi"])) for i, a in enumerate(voices) for b in voices[i + 1 :]]
-    consonance = sum(s % 12 in lore.CONSONANT for _, _, s in pairs) / len(pairs) if pairs else None
-    if pairs:
-        lines.append(f"The household sings in {key}, {consonance:.0%} consonant.")
-        if kindred := next((p for wanted in (7, 5, 0) for p in pairs if p[2] % 12 == wanted), None):
-            a, b, s = kindred
-            lines.append(f"{_capital(_named(a['id'])[1])} and {_named(b['id'])[1]} {_kindred(s)}: kindred spirits.")
-        if devil := next((p for p in pairs if p[2] % 12 == 6), None):
-            a, b, _ = devil
-            lines.append(f"{_capital(_named(a['id'])[1])} and {_named(b['id'])[1]} form a tritone, diabolus in musica.")
-    else:
-        lines.append(f"It sings alone, in {key}.")
+
+    lines = [reading]
+    for air, where in ((inside, "Inside"), (outside, "Outside")):
+        if air and air["factors"]:
+            worst = next((f for f in air["factors"] if f["id"] == air["worst"]), None)
+            weighs = f"{GUESTS[worst['id']][1]} weighs most, at {_amount(worst['value'], worst['unit'])}" if worst else "nothing weighs on it"
+            lines.append(f"{where}, the air is {air['band_name']}: {weighs}.")
+    if inside:
+        lines.append(f"So the house sings in {inside['key']}. {lore.MODES[inside['mode']][2]}")
+    if outside:
+        if not inside:
+            lines.append(f"The world sings in {outside['key']}. {lore.MODES[outside['mode']][2]}")
+        elif outside["mode"] == inside["mode"]:
+            lines.append("The world answers in the same mode: the two airs agree.")
+        else:
+            lines.append(f"The world answers in {outside['key']}. {lore.MODES[outside['mode']][2]}")
+            apart = len(set(lore.MODES[inside["mode"]][1]) ^ set(lore.MODES[outside["mode"]][1])) // 2
+            lines.append(
+                f"They differ in {apart} of seven notes"
+                + (", so the two final chords clash, as bitonal as Stravinsky's Petrushka." if apart >= 3 else ".")
+            )
+    lines.append(f"{marking}, {gloss}: {bpm} beats a minute.")
+    suffering = [t for t in themes if t["distress"]]
+    if suffering:
+        loudest = max(suffering, key=lambda t: t["distress"])
+        lines.append(f"Each guest sings its own leitmotif, tracing its line over the window; loudest is {GUESTS[loudest['id']][1]}, which suffers most.")
+    by_id = {t["id"]: t for t in themes}
+    if "blueair_fan_speed" in by_id and by_id["blueair_fan_speed"]["notes"]:
+        lines.append("The purifier's fan keeps a ground bass, as in Purcell's lament for Dido.")
+    if "outdoor_wind_speed" in by_id and by_id["outdoor_wind_speed"]["notes"]:
+        lines.append("The wind strums an Aeolian harp, in the harmonic series, which belongs to no mode.")
+    if "outdoor_rain" in by_id and (drops := len(by_id["outdoor_rain"]["notes"])):
+        lines.append(f"The rain falls in {drops} drops, after Chopin's Raindrop prelude.")
     lines.append(
         f"The Earth hums {earth['note']} {earth['cents']:+.0f}¢, "
-        + ("which your key contains: the planet approves." if earth["in_key"] else "which your key lacks: a cosmic dissonance.")
+        + ("which the house's mode contains: the planet approves." if earth["in_key"] else "which the house's mode lacks: a cosmic dissonance.")
     )
     return {
         "id": "choir",
         "title": "The household choir",
-        "headline": key,
+        "headline": mood,
         "body": " ".join(lines),
-        "voices": voices,
-        "key": key,
-        "consonance": consonance,
+        "mood": mood,
+        "reading": reading,
+        "key": home["key"],
+        "tonic": tonic,
+        "airs": list(airs.values()),
+        "themes": themes,
+        "sections": [{"label": label, "start": i * PHRASE_BEATS, "end": (i + 1) * PHRASE_BEATS} for i, (label, _) in enumerate(sections)],
+        "beats": end + CADENCE_BEATS,
+        "tempo": {"bpm": bpm, "marking": marking},
         "earth": earth,
-        "octaves": octaves,
     }
 
 

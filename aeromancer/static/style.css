@@ -25,8 +25,6 @@
   --earth: #eda100;
   --metal: #898781;
   --water: #2a78d6;
-  --key-white: #fcfcfb;
-  --key-black: #2c2c2a;
   --font: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
@@ -51,8 +49,6 @@
     --fire: #e66767;
     --earth: #c98500;
     --water: #3987e5;
-    --key-white: #c3c2b7;
-    --key-black: #0d0d0d;
   }
 }
 :root[data-theme="dark"] {
@@ -76,8 +72,6 @@
   --fire: #e66767;
   --earth: #c98500;
   --water: #3987e5;
-  --key-white: #c3c2b7;
-  --key-black: #0d0d0d;
 }
 
 * { box-sizing: border-box; }
@@ -411,13 +405,32 @@ button:focus-visible, .chart svg:focus-visible {
 }
 .listen:hover { background: color-mix(in srgb, var(--oracle-accent) 14%, transparent); }
 .listen[aria-pressed="true"] { background: var(--oracle-accent); color: #fff; box-shadow: none; }
-.keyboard { display: block; width: 100%; height: auto; overflow: visible; }
-.keyboard .white-key { fill: var(--key-white); stroke: var(--axis); stroke-width: 1; }
-.keyboard .black-key { fill: var(--key-black); }
-.keyboard .octave-label { font-size: 10px; fill: var(--text-muted); }
-.keyboard .voice, .keyboard .earth { outline: none; }
-.keyboard .earth path { fill: var(--oracle-accent); }
-.keyboard .earth text { font-size: 10px; font-weight: 600; fill: var(--oracle-accent); }
+.mood-facts { margin: -4px 0 0; font-size: 13px; color: var(--text-secondary); }
+.mood-row { display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: flex-start; }
+.mood-map { flex: 0 0 auto; width: 210px; max-width: 100%; height: auto; overflow: visible; }
+.mood-map .axis-label { font-size: 9.5px; fill: var(--text-muted); }
+.mood-map .mood-cell { fill: var(--wash); }
+.mood-map .mood-cell.on { fill: color-mix(in srgb, var(--oracle-accent) 18%, transparent); stroke: var(--oracle-accent); stroke-width: 1.2; }
+.mood-map .mood-name { font-size: 10px; fill: var(--text-muted); }
+.mood-map .mood-name.on { fill: var(--text-primary); font-weight: 600; }
+.mood-map .mood-dot { outline: none; }
+.mood-map .mood-dot circle { fill: var(--oracle-accent); stroke: var(--surface-1); stroke-width: 2; }
+.airs { flex: 1 1 220px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.air-title { margin: 0 0 4px; font-size: 12.5px; color: var(--text-secondary); }
+.air-title b { color: var(--text-primary); font-weight: 600; }
+.air-row { display: grid; grid-template-columns: 86px minmax(40px, 1fr) 76px; gap: 8px; align-items: center; font-size: 12px; color: var(--text-secondary); line-height: 1.7; }
+.air-row.worst { color: var(--text-primary); font-weight: 600; }
+.air-bar { height: 6px; border-radius: 3px; background: var(--wash); overflow: hidden; }
+.air-bar i { display: block; height: 100%; border-radius: 3px; }
+.air-value { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.score { display: block; width: 100%; height: auto; overflow: visible; }
+.score .section { fill: transparent; }
+.score .section.odd { fill: var(--wash); }
+.score .section-label { font-size: 10px; fill: var(--text-muted); }
+.score .grid-line { stroke: var(--grid); }
+.score .tick { font-size: 10px; fill: var(--text-muted); }
+.score .note { outline: none; }
+.score .playhead { stroke: var(--oracle-accent); stroke-width: 1.5; }
 .voices { display: flex; flex-wrap: wrap; gap: 3px 14px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--text-secondary); }
 .voices i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
 .voices b { color: var(--text-primary); font-weight: 600; }

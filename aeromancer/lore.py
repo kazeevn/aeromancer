@@ -4,8 +4,8 @@ The tables below are as their traditions have them: the I Ching's King Wen
 sequence with Richard Wilhelm's names for the hexagrams, the eight trigrams
 and their compass points in the Later Heaven arrangement, the five phases,
 the winds of the Tower of the Winds in Athens, the astrological houses, the
-Chinese zodiac, and Krumhansl and Kessler's key profiles from music
-psychology. Only their application to air is new.
+Chinese zodiac, Krumhansl and Kessler's key profiles from music
+psychology, and the church modes with their ethos. Only their application to air is new.
 """
 
 from __future__ import annotations
@@ -114,10 +114,18 @@ MINOR_KEYS = ("C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A", "B�
 # How well each pitch class above the tonic fits a key, as listeners rated it (Krumhansl & Kessler 1982).
 MAJOR_PROFILE = (6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88)
 MINOR_PROFILE = (6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17)
-MAJOR_SCALE = (0, 2, 4, 5, 7, 9, 11)
-MINOR_SCALE = (0, 2, 3, 5, 7, 8, 10)
-INTERVALS = (  # by semitones, modulo the octave
-    "unison", "minor second", "major second", "minor third", "major third", "perfect fourth", "tritone",
-    "perfect fifth", "minor sixth", "major sixth", "minor seventh", "major seventh",
+
+# The seven diatonic modes, brightest first, as Persichetti ranked them (Twentieth-Century Harmony, 1961):
+# each is the one before with one note lowered. Their names are Glarean's (Dodecachordon, 1547), borrowed
+# from Greek modes that were other scales; the ethos is half the Greeks' and half the centuries since.
+MODES = (
+    ("Lydian", (0, 2, 4, 6, 7, 9, 11), "Its raised fourth floats: the sound of wonder, which Plato banished from his Republic as soft and fit for drinking parties."),
+    ("Ionian", (0, 2, 4, 5, 7, 9, 11), "Our major scale, which older theorists called the modus lascivus, too cheerful for church."),
+    ("Mixolydian", (0, 2, 4, 5, 7, 9, 10), "Major with a flattened seventh, a folk song's mode; Plato heard its Greek namesake as a dirge."),
+    ("Dorian", (0, 2, 3, 5, 7, 9, 10), "Minor with a raised sixth that leaves a door ajar; Plato kept the Dorian for the brave."),
+    ("Aeolian", (0, 2, 3, 5, 7, 8, 10), "The natural minor, which Glarean added in 1547: sorrow, but orderly."),
+    ("Phrygian", (0, 1, 3, 5, 7, 8, 10), "Its second sits a half step above the tonic: the sigh of flamenco and of the Spanish lament."),
+    ("Locrian", (0, 1, 3, 5, 6, 8, 10), "Its fifth is diminished, so its home chord will not stand. Glarean named it only to set it aside as unusable."),
 )
-CONSONANT = {0, 3, 4, 5, 7, 8, 9}
+# Tempo markings, by the beats a minute below which they apply on Maelzel's metronome (1815).
+TEMPI = ((56, "Largo", "broadly"), (66, "Adagio", "at ease"), (78, "Andante", "at a walking pace"), (float("inf"), "Moderato", "moderately"))

@@ -159,16 +159,74 @@ class HouseholdTest(unittest.TestCase):
         self.assertIn("live apart, in the living room and the bedroom", f["body"])
         self.assertNotIn("sun", [m["id"] for m in oracle.society(guests, times[-1] - 6 * HOUR, times[-1])["members"]])
 
-    def test_choir_sings_the_spectrum(self):
-        period = 2 * HOUR
-        f = oracle.choir({"co2": [(START + i * 60, math.sin(2 * math.pi * i * 60 / period)) for i in range(12 * 60)]})
-        voice = f["voices"][0]
-        self.assertAlmostEqual(voice["period_s"] / period, 1, delta=0.1)
-        self.assertAlmostEqual(voice["hz"] / 2 ** f["octaves"] * period, 1, delta=0.1)
-        self.assertIsNone(f["consonance"])
-        self.assertEqual(f["headline"], f["key"])
+    def test_choir_mood_follows_the_air(self):
+        times = [START + i * 300 for i in range(12 * 12)]
+        flat = lambda v: [(t, v) for t in times]
+        good_in, bad_in = {"co2": flat(550), "temperature": flat(24)}, {"co2": flat(1900), "temperature": flat(30)}
+        good_out, bad_out = {"outdoor_pm25": flat(8)}, {"outdoor_pm25": flat(180)}
+        songs = {
+            (i, o): oracle.choir({**inside, **outside})
+            for i, inside in (("good", good_in), ("bad", bad_in))
+            for o, outside in (("good", good_out), ("bad", bad_out))
+        }
+        self.assertEqual({k: f["headline"] for k, f in songs.items()}, {
+            ("good", "good"): "Serenade", ("good", "bad"): "Sanctuary", ("bad", "good"): "Longing", ("bad", "bad"): "Dirge",
+        })
+        modes = {k: {a["id"]: a["mode"] for a in f["airs"]} for k, f in songs.items()}
+        self.assertLess(modes["good", "bad"]["inside"], modes["good", "bad"]["outside"])  # a bright house in a dark world
+        self.assertGreater(modes["bad", "good"]["inside"], modes["bad", "good"]["outside"])  # and the other way round
+        self.assertEqual(lore.MODES[modes["bad", "bad"]["inside"]][0], "Locrian")
+        bpm = {k: f["tempo"]["bpm"] for k, f in songs.items()}
+        self.assertGreater(bpm["good", "good"], bpm["good", "bad"])
+        self.assertGreater(bpm["good", "bad"], bpm["bad", "good"])  # the air inside weighs more on the tempo
+        self.assertGreater(bpm["bad", "good"], bpm["bad", "bad"])
+        sanctuary = {a["id"]: a for a in songs["good", "bad"]["airs"]}
+        self.assertEqual((sanctuary["inside"]["shift"], sanctuary["outside"]["shift"]), (0, -12))  # the heavy world sinks
+        self.assertEqual(sanctuary["outside"]["worst"], "outdoor_pm25")
+        self.assertIn("differ in", songs["good", "bad"]["body"])
+
+    def test_choir_leitmotifs_trace_their_guests(self):
+        times = [START + i * 300 for i in range(12 * 12)]
+        rising = [(t, 500 + 300 * i / len(times)) for i, t in enumerate(times)]
+        f = oracle.choir({"co2": rising})
+        breath = next(t for t in f["themes"] if t["id"] == "co2")
+        phrase = [m for b, m, _, _ in breath["notes"] if b < oracle.PHRASE_BEATS]
+        self.assertEqual(phrase, sorted(phrase))
+        self.assertGreater(phrase[-1], phrase[0])
+        self.assertEqual(breath["theme"], "breath")
+        self.assertEqual(len(f["sections"]), 2)  # a lone house sings its phrase twice
+        # The level matters now: the same line, higher, is a heavier song.
+        heavy = oracle.choir({"co2": [(t, v + 1000) for t, v in rising]})
+        self.assertGreater(heavy["airs"][0]["mode"], f["airs"][0]["mode"])
+        self.assertGreater(heavy["themes"][0]["notes"][0][3], breath["notes"][0][3])  # and the sufferer sings louder
+
+    def test_choir_ground_rain_and_wind(self):
+        times = [START + i * 300 for i in range(12 * 12)]
+        f = oracle.choir({
+            "co2": [(t, 600) for t in times],
+            "blueair_fan_speed": [(t, 3) for t in times],
+            "outdoor_rain": [(t, 0.5) for t in times],  # 6 mm/h
+            "outdoor_wind_speed": [(t, 0.2) for t in times],  # calm
+        })
+        themes = {t["id"]: t for t in f["themes"]}
+        sections = len(f["sections"])
+        self.assertEqual(len(themes["blueair_fan_speed"]["notes"]), 2 * 3 * 4)  # three pulses each two beats, in both of its sections
+        self.assertEqual(len(themes["outdoor_rain"]["notes"]), 2 * 6 * oracle.PHRASE_BEATS)  # as many drops as it allows
+        self.assertEqual(themes["outdoor_wind_speed"]["notes"], [])
+        self.assertEqual(sections, 3)
+        self.assertIn("ground bass", f["body"])
+        self.assertIn("Raindrop", f["body"])
+        self.assertNotIn("Aeolian harp", f["body"])
+        self.assertEqual(f["airs"][1]["worst"], "outdoor_rain")
+
+    def test_choir_tonic_from_the_rhythms(self):
+        f = oracle.choir({"co2": [(START + i * 60, 800 + 50 * math.sin(2 * math.pi * i / 120)) for i in range(12 * 60)]})
         self.assertAlmostEqual(f["earth"]["cents"], 25, delta=1)  # 7.83 Hz raised 6 octaves is a sharp B
         self.assertEqual(f["earth"]["note"], "B")
+        self.assertIsNotNone(oracle._tonic({"co2": [(START + i * 60, math.sin(i / 20)) for i in range(12 * 60)]}))
+        short = oracle.choir({"co2": [(START, 800), (START + 600, 820)]})
+        self.assertEqual(short["tonic"], 11)  # with no rhythm to go on, the Earth's B
+        self.assertTrue(short["key"].startswith("B "))
 
     def test_key_finding(self):
         self.assertEqual(oracle._key([60, 64, 67]), (0, "major"))  # C E G

@@ -780,8 +780,32 @@ function societyFigure(card, f) {
   bodyText(card, f);
 }
 
-// The choir, as it sounds: each voice at its own pitch, cents and all, over the Earth's drone.
-const choirAudio = { ctx: null, master: null, nodes: [], timer: 0, playing: false };
+// The choir, as it sounds. Each leitmotif has its own instrument, shaped by how its guest feels;
+// the house sings up close, the world through the glass, both over the Earth's drone.
+const choirAudio = { ctx: null, master: null, noise: null, nodes: [], timer: 0, frame: 0, playing: false, start: 0, spb: 1 };
+const NOTE_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
+const THEME_NAMES = {
+  breath: "the Breath", warmth: "the Warmth", damp: "the Damp", dust: "the Dust", vapour: "the Vapours",
+  ground: "the Ground", haze: "the Haze", harp: "the Aeolian harp", rain: "the Rain", chord: "the cadence",
+};
+const THEME_SOUNDS = {
+  breath: "swells like a lung",
+  warmth: "shimmers more as it gets hotter",
+  damp: "echoes more as the air gets wetter",
+  dust: "plucked, and gritty with its particles",
+  vapour: "two reeds that beat against each other as the VOCs rise",
+  ground: "a ground bass, a pulse for each step of the fan",
+  haze: "a low drone, hissing with its particles",
+  harp: "the harmonics of the tonic, plucked by the wind",
+  rain: "a drop for every two-thirds of a millimetre an hour",
+  chord: "each side's home chord, in its own mode",
+};
+const hzOf = midi => 440 * 2 ** ((midi - 69) / 12);
+
+function noteName(midi) {
+  const m = Math.round(midi), off = (midi - m) * 100;
+  return `${NOTE_NAMES[((m % 12) + 12) % 12]}${Math.floor(m / 12) - 1}${Math.abs(off) >= 1 ? ` ${cents(off)}` : ""}`;
+}
 
 function setListening(playing) {
   choirAudio.playing = playing;
@@ -789,6 +813,7 @@ function setListening(playing) {
     b.textContent = playing ? "■ Stop" : "▶ Listen";
     b.setAttribute("aria-pressed", String(playing));
   }
+  if (!playing) for (const p of document.querySelectorAll(".score .playhead")) p.setAttribute("visibility", "hidden");
 }
 
 function stopChoir() {
@@ -800,7 +825,40 @@ function stopChoir() {
   }
   choirAudio.nodes = [];
   clearTimeout(choirAudio.timer);
+  cancelAnimationFrame(choirAudio.frame);
   setListening(false);
+}
+
+// The playhead, on whichever copy of the score is on the page now: the Oracle redraws its cards.
+function followChoir() {
+  const { ctx, start, spb } = choirAudio;
+  const beat = (ctx.currentTime - start) / spb;
+  for (const p of document.querySelectorAll(".score .playhead")) {
+    const x = Math.min(Number(p.dataset.width), Math.max(0, beat * Number(p.dataset.perBeat)));
+    p.setAttribute("transform", `translate(${x.toFixed(1)},0)`);
+    p.setAttribute("visibility", beat >= 0 ? "visible" : "hidden");
+  }
+  if (choirAudio.playing) choirAudio.frame = requestAnimationFrame(followChoir);
+}
+
+function noiseBuffer(ctx) {
+  if (choirAudio.noise?.sampleRate === ctx.sampleRate) return choirAudio.noise;
+  const buffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  return (choirAudio.noise = buffer);
+}
+
+// A hall to sing in: two seconds of decaying noise.
+function reverb(ctx, seconds) {
+  const conv = ctx.createConvolver(), len = Math.round(ctx.sampleRate * seconds);
+  const ir = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let c = 0; c < 2; c++) {
+    const data = ir.getChannelData(c);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len) ** 2.5;
+  }
+  conv.buffer = ir;
+  return conv;
 }
 
 function playChoir(f) {
@@ -809,42 +867,269 @@ function playChoir(f) {
   if (!Context) return;
   const ctx = (choirAudio.ctx ||= new Context());
   ctx.resume();
-  const start = ctx.currentTime + 0.05, entry = 0.3, release = 1.8;
-  const end = start + entry * f.voices.length + 3;
+  const spb = 60 / f.tempo.bpm, release = 2.4;
+  const start = ctx.currentTime + 0.1, end = start + f.beats * spb;
+  Object.assign(choirAudio, { start, spb });
+  const stopAt = end + release + 0.2;
+  const keep = n => (choirAudio.nodes.push(n), n);
+
   const master = (choirAudio.master = ctx.createGain());
   const soften = ctx.createBiquadFilter();
   soften.type = "lowpass";
-  soften.frequency.value = 2600;
-  master.connect(soften).connect(ctx.destination);
+  soften.frequency.value = 6000;
+  const limit = ctx.createDynamicsCompressor();
+  master.connect(soften).connect(limit).connect(ctx.destination);
   master.gain.setValueAtTime(0.0001, start);
-  master.gain.exponentialRampToValueAtTime(0.8, start + 0.25);
-  master.gain.setValueAtTime(0.8, end);
+  master.gain.exponentialRampToValueAtTime(0.9, start + 0.3);
+  master.gain.setValueAtTime(0.9, end);
   master.gain.exponentialRampToValueAtTime(0.0001, end + release);
-  const level = 0.45 / Math.max(3, f.voices.length);
-  const sound = (hz, at, type, peak) => {
-    const osc = ctx.createOscillator(), gain = ctx.createGain();
-    osc.type = type;
-    osc.frequency.value = hz;
-    gain.gain.setValueAtTime(0, at);
-    gain.gain.linearRampToValueAtTime(peak, at + 0.15);
-    osc.connect(gain).connect(master);
-    osc.start(at);
-    osc.stop(end + release + 0.1);
-    choirAudio.nodes.push(osc);
-    return gain;
+  const hall = reverb(ctx, 2.6);
+  hall.connect(master);
+
+  // Each side's air colours everything it sings: heavy air is muffled, and the world is heard through the glass.
+  const airs = Object.fromEntries(f.airs.map(a => [a.id, a]));
+  const buses = {};
+  for (const where of ["inside", "outside"]) {
+    const d = airs[where]?.distress ?? 0, outside = where === "outside";
+    const tone = ctx.createBiquadFilter();
+    tone.type = "lowpass";
+    tone.frequency.value = (outside ? 500 + 2300 * (1 - d) : 700 + 5000 * (1 - d) ** 1.5);
+    tone.Q.value = 0.5;
+    const gain = ctx.createGain();
+    gain.gain.value = outside ? 0.7 : 1;
+    const wet = ctx.createGain();
+    wet.gain.value = outside ? 0.45 : 0.15;
+    tone.connect(gain).connect(master);
+    gain.connect(wet).connect(hall);
+    buses[where] = tone;
+  }
+
+  const n = f.themes.filter(t => t.notes.length).length;
+  const level = 0.5 / Math.max(3, Math.sqrt(n) * 2);
+  const env = (g, at, attack, hold, decay, peak) => {
+    g.gain.setValueAtTime(0, at);
+    g.gain.linearRampToValueAtTime(peak, at + attack);
+    g.gain.setValueAtTime(peak, at + attack + hold);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + attack + hold + decay);
+    return at + attack + hold + decay + 0.05;
+  };
+  const osc = (type, hz, at, until, out) => {
+    const o = keep(ctx.createOscillator());
+    o.type = type;
+    o.frequency.value = hz;
+    o.connect(out);
+    o.start(at);
+    o.stop(Math.min(until, stopAt));
+    return o;
+  };
+  const noise = (at, until, out) => {
+    const s = keep(ctx.createBufferSource());
+    s.buffer = noiseBuffer(ctx);
+    s.loop = true;
+    s.connect(out);
+    s.start(at, Math.random());
+    s.stop(Math.min(until, stopAt));
+    return s;
+  };
+
+  const instruments = {
+    breath(hz, at, dur, peak, out) {
+      const g = ctx.createGain();
+      g.connect(out);
+      const until = env(g, at, dur * 0.45, dur * 0.1, dur * 0.6, peak);
+      osc("sine", hz, at, until, g);
+      const h = ctx.createGain();
+      h.gain.value = 0.18;
+      h.connect(g);
+      osc("triangle", hz * 2, at, until, h);
+    },
+    warmth(hz, at, dur, peak, out, t) {
+      const g = ctx.createGain();
+      g.connect(out);
+      const until = env(g, at, 0.06, dur * 0.7, 0.35, peak);
+      const o = osc("triangle", hz, at, until, g);
+      const lfo = keep(ctx.createOscillator()), depth = ctx.createGain();
+      lfo.frequency.value = 5.5;
+      depth.gain.value = hz * (2 ** ((4 + 30 * (t.distress ?? 0)) / 1200) - 1);  // heat shimmers
+      lfo.connect(depth).connect(o.frequency);
+      lfo.start(at);
+      lfo.stop(Math.min(until, stopAt));
+    },
+    damp(hz, at, dur, peak, out, t) {
+      const g = ctx.createGain();
+      g.connect(out);
+      const until = env(g, at, 0.3, dur * 0.6, dur * 0.5, peak);
+      osc("sine", hz, at, until, g);
+      const echo = ctx.createDelay(2), back = ctx.createGain();
+      echo.delayTime.value = spb * 0.75;
+      back.gain.value = 0.2 + 0.55 * Math.min(1, (t.value ?? 60) / 100);  // wetter air, longer echoes
+      g.connect(echo).connect(back).connect(echo);
+      back.connect(out);
+    },
+    dust(hz, at, dur, peak, out, t) {
+      const g = ctx.createGain();
+      g.connect(out);
+      osc("triangle", hz, at, env(g, at, 0.005, 0, 0.3, peak), g);
+      const grit = ctx.createBiquadFilter();
+      grit.type = "bandpass";
+      grit.frequency.value = 3500;
+      grit.Q.value = 1.5;
+      grit.connect(out);
+      const grains = 1 + Math.round(4 * (t.distress ?? 0));  // the more particles, the more grit
+      for (let i = 0; i < grains; i++) {
+        const gg = ctx.createGain(), when = at + Math.random() * dur * 2;
+        gg.connect(grit);
+        noise(when, env(gg, when, 0.002, 0, 0.03, peak * 0.9), gg);
+      }
+    },
+    vapour(hz, at, dur, peak, out, t) {
+      const g = ctx.createGain(), dull = ctx.createBiquadFilter();
+      dull.type = "lowpass";
+      dull.frequency.value = 1400;
+      g.connect(dull).connect(out);
+      const until = env(g, at, dur * 0.3, dur * 0.4, dur * 0.5, peak * 0.6);
+      const spread = 3 + 30 * (t.distress ?? 0);  // VOCs beat against each other
+      for (const c of [-spread, spread]) osc("sawtooth", hz * 2 ** (c / 1200), at, until, g);
+    },
+    ground(hz, at, dur, peak, out) {
+      const g = ctx.createGain(), dull = ctx.createBiquadFilter();
+      dull.type = "lowpass";
+      dull.frequency.value = 600;
+      g.connect(dull).connect(out);
+      osc("square", hz, at, env(g, at, 0.01, dur * 0.4, dur * 0.5, peak * 0.7), g);
+    },
+    haze(hz, at, dur, peak, out, t) {
+      const g = ctx.createGain(), dull = ctx.createBiquadFilter();
+      dull.type = "lowpass";
+      dull.frequency.value = 450;
+      g.connect(dull).connect(out);
+      const until = env(g, at, dur * 0.4, dur * 0.3, dur * 0.6, peak);
+      osc("sawtooth", hz, at, until, g);
+      const hiss = ctx.createGain(), band = ctx.createBiquadFilter();
+      band.type = "bandpass";
+      band.frequency.value = hz * 6;
+      band.Q.value = 0.8;
+      hiss.connect(band).connect(out);
+      noise(at, env(hiss, at, dur * 0.4, dur * 0.3, dur * 0.6, peak * 1.6 * (t.distress ?? 0)), hiss);
+    },
+    harp(hz, at, dur, peak, out) {
+      const g = ctx.createGain(), pan = ctx.createStereoPanner();
+      pan.pan.value = Math.random() * 1.6 - 0.8;
+      g.connect(pan).connect(out);
+      osc("sine", hz, at, env(g, at, 0.01, 0, dur, peak), g);
+    },
+    rain(hz, at, dur, peak, out) {
+      const g = ctx.createGain(), pan = ctx.createStereoPanner();
+      pan.pan.value = Math.random() * 1.8 - 0.9;
+      g.connect(pan).connect(out);
+      const o = osc("sine", hz, at, env(g, at, 0.002, 0, 0.14, peak), g);
+      o.frequency.setValueAtTime(hz * 1.06, at);
+      o.frequency.exponentialRampToValueAtTime(hz, at + 0.05);  // a drop lands, and settles
+    },
+    chord(hz, at, dur, peak, out) {
+      const g = ctx.createGain();
+      g.connect(out);
+      const until = env(g, at, 0.5, dur - 0.5, release, peak);
+      osc("sine", hz, at, until, g);
+      const h = ctx.createGain();
+      h.gain.value = 0.25;
+      h.connect(g);
+      osc("triangle", hz, at, until, h);
+    },
   };
   // The Earth hums two octaves below its note, trembling at its own 7.83 Hz.
-  const drone = sound(f.earth.hz / 4, start, "sine", level * 1.6);
-  const tremble = ctx.createOscillator(), depth = ctx.createGain();
-  tremble.frequency.value = 7.83;
-  depth.gain.value = level * 0.7;
-  tremble.connect(depth).connect(drone.gain);
-  tremble.start(start);
-  tremble.stop(end + release + 0.1);
-  choirAudio.nodes.push(tremble);
-  f.voices.forEach((v, i) => sound(v.hz, start + 0.4 + i * entry, v.group === "blueair" ? "triangle" : "sine", level));
+  const drone = ctx.createGain();
+  drone.connect(master);
+  env(drone, start, 1.5, f.beats * spb - 1.5, release, level * 0.45);  // under the choir, not over it
+  osc("sine", f.earth.hz / 4, start, stopAt, drone);
+  const depth = ctx.createGain();
+  depth.gain.value = level * 0.15;
+  depth.connect(drone.gain);
+  osc("sine", 7.83, start, stopAt, depth);
+
+  f.themes.forEach((t, i) => {
+    const pan = ctx.createStereoPanner();
+    const spread = t.layer === "outside" ? 0.7 : 0.3;
+    pan.pan.value = n > 1 ? -spread + (2 * spread * (i % n)) / (n - 1) : 0;
+    pan.connect(buses[t.layer]);
+    for (const [beat, midi, beats, loud] of t.notes) instruments[t.theme](hzOf(midi), start + beat * spb, beats * spb, level * loud, pan, t);
+  });
   setListening(true);
-  choirAudio.timer = setTimeout(stopChoir, (end + release - ctx.currentTime) * 1000 + 300);
+  choirAudio.frame = requestAnimationFrame(followChoir);
+  choirAudio.timer = setTimeout(stopChoir, (stopAt - ctx.currentTime) * 1000 + 300);
+}
+
+// Inside against outside, each a third clear, middling or heavy, with the mood of every pairing.
+const MOOD_GRID = [["Serenade", "Pastorale", "Sanctuary"], ["Invitation", "Nocturne", "Vigil"], ["Longing", "Lament", "Dirge"]];
+
+function moodMap(f) {
+  const inside = f.airs.find(a => a.id === "inside"), outside = f.airs.find(a => a.id === "outside");
+  const cell = 62, left = 20, top = 16, W = left + 3 * cell + 2, H = top + 3 * cell + 4;
+  const s = svg("svg", { class: "mood-map", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `Mood: ${f.mood}, from the air inside and outside` });
+  svg("text", { x: left + 1.5 * cell, y: 10, "text-anchor": "middle", class: "axis-label" }, s).textContent = "outside: clear → heavy";
+  svg("text", { x: 10, y: top + 1.5 * cell, "text-anchor": "middle", class: "axis-label", transform: `rotate(-90 10 ${top + 1.5 * cell})` }, s).textContent = "inside: clear → heavy";
+  MOOD_GRID.forEach((row, r) => row.forEach((name, c) => {
+    const on = name === f.mood;
+    svg("rect", { x: left + c * cell + 1, y: top + r * cell + 1, width: cell - 2, height: cell - 2, rx: 6, class: on ? "mood-cell on" : "mood-cell" }, s);
+    svg("text", { x: left + (c + 0.5) * cell, y: top + (r + 0.5) * cell + 4, "text-anchor": "middle", class: on ? "mood-name on" : "mood-name" }, s).textContent = name;
+  }));
+  const dot = svg("g", { class: "mood-dot", tabindex: 0 }, s);
+  svg("circle", { cx: left + outside.distress * 3 * cell, cy: top + inside.distress * 3 * cell, r: 6 }, dot);
+  hoverTip(dot, f.mood, [
+    { color: GROUP_COLORS.zytemp, label: `inside, ${inside.band_name}`, value: `${Math.round(inside.distress * 100)}% heavy` },
+    { color: GROUP_COLORS.outdoor, label: `outside, ${outside.band_name}`, value: `${Math.round(outside.distress * 100)}% heavy` },
+  ]);
+  return s;
+}
+
+function airPanel(a) {
+  const box = html("div", { class: "air" });
+  const title = html("p", { class: "air-title" }, box);
+  html("b", {}, title, a.id === "inside" ? "The house" : "The world");
+  title.append(` sings in ${a.key}`);
+  for (const x of a.factors) {
+    const row = html("div", { class: `air-row${x.id === a.worst ? " worst" : ""}` }, box);
+    html("span", { class: "air-label" }, row, x.label);
+    const bar = html("span", { class: "air-bar" }, row);
+    html("i", { style: `width:${Math.max(2, x.distress * 100).toFixed(0)}%;background:${GROUP_COLORS[x.group]}` }, bar);
+    const digits = ["°C", "m/s", "mm/h"].includes(x.unit) ? 1 : 0;
+    html("span", { class: "air-value" }, row, `${x.value.toFixed(digits)}${x.unit === "%" ? "%" : ` ${x.unit}`}`);
+  }
+  return box;
+}
+
+// The score as a piano roll: every leitmotif's notes in time, by pitch, in its guest's colour.
+function scoreSvg(f) {
+  const W = 560, H = 190, m = { left: 30, right: 6, top: 18, bottom: 8 };
+  const notes = f.themes.flatMap(t => t.notes.map(n => ({ t, beat: n[0], midi: n[1], beats: n[2], loud: n[3] })));
+  const lo = Math.floor(Math.min(...notes.map(n => n.midi)) / 12) * 12, hi = Math.ceil((Math.max(...notes.map(n => n.midi)) + 1) / 12) * 12;
+  const perBeat = (W - m.left - m.right) / f.beats;
+  const x = b => m.left + b * perBeat;
+  const y = midi => m.top + (1 - (midi - lo) / (hi - lo)) * (H - m.top - m.bottom);
+  const row = Math.max(2.5, Math.min(6, (H - m.top - m.bottom) / (hi - lo)));
+  const s = svg("svg", { class: "score", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `The score: ${f.themes.length} leitmotifs over ${f.beats} beats at ${f.tempo.bpm} a minute` });
+  f.sections.forEach((sec, i) => {
+    svg("rect", { x: x(sec.start), y: m.top, width: (sec.end - sec.start) * perBeat, height: H - m.top - m.bottom, class: i % 2 ? "section odd" : "section" }, s);
+    svg("text", { x: x(sec.start) + 4, y: 11, class: "section-label" }, s).textContent = sec.label;
+  });
+  svg("text", { x: x(f.beats - 4) + 4, y: 11, class: "section-label" }, s).textContent = "Cadence";
+  for (let c = lo; c <= hi; c += 12) {
+    svg("line", { x1: m.left, x2: W - m.right, y1: Math.round(y(c)) + 0.5, y2: Math.round(y(c)) + 0.5, class: "grid-line" }, s);
+    svg("text", { x: m.left - 5, y: y(c) + 3.5, "text-anchor": "end", class: "tick" }, s).textContent = `C${c / 12 - 1}`;
+  }
+  for (const nt of notes) {
+    const g = svg("g", { class: "note", tabindex: -1 }, s);
+    svg("rect", {
+      x: x(nt.beat), y: y(nt.midi) - row / 2, width: Math.max(2.5, Math.min(nt.beats, f.beats - nt.beat) * perBeat - 1), height: row, rx: Math.min(2, row / 2),
+      fill: GROUP_COLORS[nt.t.group], "fill-opacity": (0.35 + 0.65 * nt.loud).toFixed(2),
+    }, g);
+    hoverTip(g, `${nt.t.label}: ${THEME_NAMES[nt.t.theme]}`, [
+      { color: GROUP_COLORS[nt.t.group], label: noteName(nt.midi), value: `beat ${fmt1.format(nt.beat + 1)}` },
+      { color: "transparent", label: THEME_SOUNDS[nt.t.theme], value: "" },
+    ]);
+  }
+  svg("line", { x1: x(0), x2: x(0), y1: m.top - 4, y2: H - m.bottom, class: "playhead", visibility: "hidden", "data-per-beat": perBeat, "data-width": f.beats * perBeat }, s);
+  return s;
 }
 
 function choirFigure(card, f, header) {
@@ -852,53 +1137,20 @@ function choirFigure(card, f, header) {
   button.addEventListener("click", () => (choirAudio.playing ? stopChoir() : playChoir(f)));
   setListening(choirAudio.playing);
   card.append(headline(f));
-
-  const earthMidi = Math.round(69 + 12 * Math.log2(f.earth.hz / 440));
-  const midis = f.voices.map(v => v.midi).concat(earthMidi);
-  const lo = Math.floor(Math.min(...midis) / 12) * 12, hi = Math.ceil((Math.max(...midis) + 1) / 12) * 12 - 1;
-  const isWhite = m => [0, 2, 4, 5, 7, 9, 11].includes(((m % 12) + 12) % 12);
-  const whites = [];
-  for (let m = lo; m <= hi; m++) if (isWhite(m)) whites.push(m);
-  const W = 560, top = 18, H = 104, kw = W / whites.length;
-  const s = svg("svg", { class: "keyboard", viewBox: `0 0 ${W} ${top + H + 16}`, role: "img", "aria-label": `${f.voices.length} voices on a keyboard, singing in ${f.key}` }, card);
-  const keys = new Map();
-  whites.forEach((m, i) => {
-    svg("rect", { x: i * kw + 0.5, y: top, width: kw - 1, height: H, rx: 3, class: "white-key" }, s);
-    keys.set(m, { x: i * kw + kw / 2, white: true });
-    if (m % 12 === 0) svg("text", { x: i * kw + kw / 2, y: top + H + 13, "text-anchor": "middle", class: "octave-label" }, s).textContent = `C${m / 12 - 1}`;
-  });
-  for (let m = lo; m <= hi; m++) {
-    if (isWhite(m)) continue;
-    const x = whites.indexOf(m + 1) * kw;  // between its two white neighbours
-    svg("rect", { x: x - kw * 0.3, y: top, width: kw * 0.6, height: H * 0.62, rx: 2, class: "black-key" }, s);
-    keys.set(m, { x, white: false });
-  }
-  const earth = keys.get(earthMidi);
-  const e = svg("g", { class: "earth", tabindex: 0 }, s);
-  svg("path", { d: `M${earth.x - 5},${top - 8}h10l-5,6z` }, e);
-  svg("text", { x: earth.x, y: top - 11, "text-anchor": "middle" }, e).textContent = "Earth";
-  hoverTip(e, "The Earth", [{ color: "var(--oracle-accent)", label: `${f.earth.note} ${cents(f.earth.cents)}, the Schumann resonance up 6 octaves`, value: `${fmt1.format(f.earth.hz)} Hz` }]);
-  const stacked = new Map();
-  for (const v of f.voices) {
-    const k = keys.get(v.midi);
-    const n = stacked.get(v.midi) || 0;
-    stacked.set(v.midi, n + 1);
-    const y = (k.white ? top + H - 12 : top + H * 0.62 - 10) - n * 13;
-    const g = svg("g", { class: "voice", tabindex: 0 }, s);
-    svg("circle", { cx: k.x, cy: y, r: 12, fill: "transparent" }, g);
-    svg("circle", { cx: k.x, cy: y, r: 5.5, fill: GROUP_COLORS[v.group], stroke: k.white ? "var(--key-white)" : "var(--key-black)", "stroke-width": 2 }, g);
-    hoverTip(g, v.label, [
-      { color: GROUP_COLORS[v.group], label: `${v.note}${v.octave} ${cents(v.cents)}, ${v.register}`, value: `${fmt1.format(v.hz)} Hz` },
-      { color: "transparent", label: "from a rhythm of", value: duration(v.period_s) },
-    ]);
-  }
-  const list = html("ul", { class: "voices", "aria-label": "Voices, from the lowest" }, card);
-  for (const v of f.voices) {
-    const li = html("li", {}, list);
-    html("i", { style: `background:${GROUP_COLORS[v.group]}` }, li);
-    li.append(`${v.label} `);
-    html("b", {}, li, `${v.note}${v.octave}`);
-    html("small", {}, li, ` ${cents(v.cents)}`);
+  const keys = f.airs.map(a => `${a.id === "inside" ? "the house" : "the world"} in ${a.key}`);
+  html("p", { class: "mood-facts" }, card, `${f.tempo.marking}, ${f.tempo.bpm} beats a minute · ${keys.join(" against ")}`);
+  const row = html("div", { class: "mood-row" }, card);
+  if (f.airs.length === 2) row.append(moodMap(f));
+  const panels = html("div", { class: "airs" }, row);
+  for (const a of f.airs) if (a.factors.length) panels.append(airPanel(a));
+  card.append(scoreSvg(f));
+  const list = html("ul", { class: "voices", "aria-label": "Leitmotifs" }, card);
+  for (const t of f.themes) {
+    if (t.theme === "chord" || !t.notes.length) continue;
+    const li = html("li", { title: THEME_SOUNDS[t.theme] }, list);
+    html("i", { style: `background:${GROUP_COLORS[t.group]}` }, li);
+    li.append(`${t.label} `);
+    html("b", {}, li, THEME_NAMES[t.theme]);
   }
   bodyText(card, f);
 }
@@ -1237,7 +1489,7 @@ function renderOmens(byId) {
     ["mercury", f => ["☿", f.headline]],
     ["moon", f => ["☽", f.headline]],
     ["souls", f => (f.souls === null ? null : ["", f.headline])],
-    ["choir", f => ["♪", f.key]],
+    ["choir", f => ["♪", f.headline]],
     ["elements", f => (f.colour ? [f.elements.find(e => e.element === f.excess).char, `wear ${f.colour}`] : null)],
   ];
   for (const [id, omen] of omens) {
