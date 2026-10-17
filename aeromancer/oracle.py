@@ -18,6 +18,22 @@ from . import astro
 
 PHI = (1 + 5**0.5) / 2
 SCHUMANN_HZ = 7.83
+AIRING_PM25 = 35  # µg/m³ of outdoor PM2.5 (the US EPA 24-hour standard) above which airing trades CO2 for particles
+
+
+def hazy(outdoor_pm25: float | None) -> bool:
+    """Whether the outside air is too dirty to air the room with; unknown counts as clean."""
+    return outdoor_pm25 is not None and outdoor_pm25 >= AIRING_PM25
+
+
+def airing(outdoor_pm25: float | None) -> str:
+    """What to do about stale air, given the latest outdoor PM2.5 (None when unknown)."""
+    if hazy(outdoor_pm25):
+        return (
+            f"But the veil beyond the glass is thick with haze ({outdoor_pm25:.0f} µg/m³ of PM2.5): keep the windows "
+            "sealed, thin the crowd, and let the purifier sing."
+        )
+    return "Open a window and let the outside in."
 
 # Upper CO2 bound (ppm), name, Sanskrit name, reading.
 CHAKRAS = (
@@ -27,7 +43,7 @@ CHAKRAS = (
     (1000, "Heart", "Anahata", "Warm, loving, slightly shared air."),
     (1400, "Solar Plexus", "Manipura", "Willpower is high. Oxygen is less so."),
     (2000, "Sacral", "Svadhishthana", "Creative energy is pooling near the ceiling."),
-    (math.inf, "Root", "Muladhara", "Deeply grounded. Possibly asleep. Open a window."),
+    (math.inf, "Root", "Muladhara", "Deeply grounded. Possibly asleep. {airing}"),
 )
 
 LIFE_PATHS = {
@@ -151,7 +167,7 @@ def chakra_of(ppm: float) -> str:
     return _chakra_for(ppm)[1]
 
 
-def chakra_residency(co2):
+def chakra_residency(co2, outdoor_pm25: float | None = None):
     counts = [0] * len(CHAKRAS)
     for _, v in co2:
         counts[CHAKRAS.index(_chakra_for(v))] += 1
@@ -166,7 +182,7 @@ def chakra_residency(co2):
         "title": "Chakra residency",
         "headline": f"{CHAKRAS[dominant][1]} chakra",
         "body": f"Your air dwelt {counts[dominant] / total:.0%} of the time in {CHAKRAS[dominant][1]} "
-        f"({CHAKRAS[dominant][2]}). {CHAKRAS[dominant][3]}",
+        f"({CHAKRAS[dominant][2]}). {CHAKRAS[dominant][3].format(airing=airing(outdoor_pm25))}",
         "bands": bands,
     }
 
@@ -341,7 +357,7 @@ def zodiac(co2, temperature, end):
     }
 
 
-def horoscope(co2, end, findings):
+def horoscope(co2, end, findings, outdoor_pm25: float | None = None):
     day = datetime.fromtimestamp(end).strftime("%Y-%m-%d")
     last_hour = [v for t, v in co2 if t >= end - 3600]
     trend = last_hour[-1] - last_hour[0] if len(last_hour) >= 2 else 0
@@ -366,7 +382,16 @@ def horoscope(co2, end, findings):
         "With Mercury retrograde, avoid signing contracts in poorly ventilated rooms."
         if by_id["mercury"]["retrograde"]
         else f"Under a {moon_name if moon_name.endswith('Moon') else moon_name + ' Moon'}, it is an auspicious time to "
-        + _pick(("air out the bedroom.", "water a plant.", "breathe more quietly.", "stand near a window."), day, "advice")
+        + _pick(
+            (
+                "keep the windows shut and the purifier high." if hazy(outdoor_pm25) else "air out the bedroom.",
+                "water a plant.",
+                "breathe more quietly.",
+                "stand near a window.",
+            ),
+            day,
+            "advice",
+        )
     )
     lucky = round(statistics.fmean(last_hour or [v for _, v in co2]))
     return {
@@ -451,22 +476,26 @@ def analyze(
     start: float,
     end: float,
     signals: dict[str, list[tuple[float, float]]] | None = None,
+    outdoor_pm25: float | None = None,
 ) -> dict:
-    """All series are ``(ts, value)`` lists in time order; ``signals`` maps ``op_XX`` names to theirs."""
+    """All series are ``(ts, value)`` lists in time order; ``signals`` maps ``op_XX`` names to theirs.
+
+    ``outdoor_pm25`` is the latest outdoor PM2.5, if known, so the advice does not open windows into haze.
+    """
     if not co2:
         return {"findings": [], "disclaimer": "The Oracle needs CO2 readings to divine anything."}
     findings = [
         aura(co2, temperature),
         lunar(co2, end),
         mercury(co2, start, end),
-        chakra_residency(co2),
+        chakra_residency(co2, outdoor_pm25),
         schumann(co2),
         golden_ratio(co2),
         numerology(co2),
         zodiac(co2, temperature, end),
         voices(signals or {}, co2, temperature, start, end),
     ]
-    findings.append(horoscope(co2, end, findings))
+    findings.append(horoscope(co2, end, findings, outdoor_pm25))
     for f in findings:
         f["certainty"] = _pick(CERTAINTIES, f["id"], f["headline"])
     return {

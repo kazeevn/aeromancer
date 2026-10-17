@@ -64,9 +64,22 @@ def default_path() -> Path:
 
 
 class Store:
-    """Not thread-safe: open one Store per thread."""
+    """Not thread-safe: open one Store per thread.
 
-    def __init__(self, path: str | os.PathLike):
+    A ``readonly`` Store opens an existing database through SQLite's ``mode=ro``, which refuses every
+    write, and leaves the schema and journal mode to whoever records into it.
+    """
+
+    def __init__(self, path: str | os.PathLike, readonly: bool = False):
+        if readonly:
+            if not Path(path).exists():
+                raise FileNotFoundError(f"no database at {path}; record into it first")
+            self.db = sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True, timeout=10)
+            # SQLite opens the WAL read-write even so; never checkpoint it on close (Python 3.12+), and leave that
+            # to the recorder. Readers still update the -shm index, which is how WAL readers coordinate.
+            if hasattr(self.db, "setconfig"):
+                self.db.setconfig(sqlite3.SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, True)
+            return
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, timeout=10)
         self.db.execute("PRAGMA journal_mode=WAL")
@@ -115,6 +128,12 @@ class Store:
             """
         ).fetchall()
         return [name for (name,) in rows]
+
+    def latest_of(self, quantity: str) -> tuple[float, float] | None:
+        """``(ts, value)`` of the newest reading of ``quantity``."""
+        return self.db.execute(
+            "SELECT ts, value FROM readings WHERE quantity = ? ORDER BY ts DESC LIMIT 1", (quantity,)
+        ).fetchone()
 
     def latest(self) -> dict[str, tuple[float, float]]:
         out = {}

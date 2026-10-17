@@ -8,6 +8,7 @@ const state = {
   range: loadRange(),
   series: null,
   oracle: null,
+  kabbalah: null,
   latest: null,
 };
 
@@ -370,7 +371,8 @@ function renderCharts() {
   const air = [
     {
       title: "CO₂, ppm", height: 190, minPad: 40, ...int, format: v => `${fmtInt.format(v)} ppm`,
-      refs: [{ value: 1000, label: "1000 ppm · open a window" }],
+      // In haze, airing trades CO₂ for particles, so the advice changes with the outdoor air.
+      refs: [{ value: 1000, label: state.latest?.hazy ? "1000 ppm · haze: thin the crowd" : "1000 ppm · open a window" }],
       series: [meter("CO₂ zyTemp", s.co2), blueair("CO₂ Blueair", s.blueair_co2)],
     },
     {
@@ -574,6 +576,190 @@ function renderOracle() {
   }
 }
 
+// ---------- the Tree of Life ----------
+
+function hoverable(node, label, show) {
+  node.setAttribute("tabindex", "0");
+  node.setAttribute("aria-label", label);
+  const at = e => {
+    const r = node.getBoundingClientRect();
+    show(e?.clientX ?? r.left + r.width / 2, e?.clientY ?? r.top + r.height / 2);
+  };
+  node.addEventListener("pointerenter", at);
+  node.addEventListener("pointermove", at);
+  node.addEventListener("focus", () => at());
+  node.addEventListener("pointerleave", hideTooltip);
+  node.addEventListener("blur", hideTooltip);
+}
+
+// Hebrew words and numerals, isolated so the English around them keeps its order.
+const HEBREW_RUN = /([א-ת][א-ת׳״ ]*[א-ת׳])|([א-ת])/g;
+
+function withHebrew(parent, text) {
+  let at = 0;
+  for (const m of text.matchAll(HEBREW_RUN)) {
+    parent.append(text.slice(at, m.index));
+    html("bdi", { lang: "he" }, parent, m[0]);
+    at = m.index + m[0].length;
+  }
+  parent.append(text.slice(at));
+  return parent;
+}
+
+function bandText(s) {
+  if (s.lower === null) return `${s.trend}, <${s.upper} ppm`;
+  if (s.upper === null) return `${s.trend}, ${s.lower}+ ppm`;
+  return `${s.trend}, ${s.lower}–${s.upper} ppm`;
+}
+
+function formatInstrument(instrument, value) {
+  const text = value.toLocaleString(undefined, { minimumFractionDigits: instrument.decimals, maximumFractionDigits: instrument.decimals });
+  return instrument.unit ? `${text} ${instrument.unit}` : text;
+}
+
+function treeSvg(f, instruments) {
+  const DX = 72, DY = 44, R = 19, LABEL = 68;  // room beside the side pillars for their names
+  const W = 2 * (DX + R + LABEL), H = 7 * DY + 2 * R + 12;
+  const x = s => W / 2 + s.x * DX, y = s => R + 6 + s.y * DY;
+  const s = svg("svg", { class: "tree", width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "group", "aria-label": "Tree of Life" });
+  const byName = Object.fromEntries(f.sefirot.map(n => [n.name, n]));
+  const accent = "var(--oracle-accent)";
+
+  const maxCount = Math.max(1, ...f.paths.map(p => p.count));
+  const paths = svg("g", { class: "tree-paths" }, s);
+  const letters = svg("g", { class: "tree-letters" }, s);
+  for (const p of f.paths) {
+    const a = byName[p.a], b = byName[p.b];
+    const coords = { x1: x(a), y1: y(a), x2: x(b), y2: y(b) };
+    svg("line", { ...coords, class: p.count ? "trodden" : "untrodden", "stroke-width": p.count ? 1 + 5 * p.count / maxCount : 1 }, paths);
+    const hit = svg("line", { ...coords, class: "hit" }, paths);
+    // Horizontal paths keep their letter off the central pillar's line.
+    const t = a.y === b.y ? 0.4 : 0.5;
+    svg("text", { x: x(a) + (x(b) - x(a)) * t, y: y(a) + (y(b) - y(a)) * t, dy: "0.35em", lang: "he" }, letters).textContent = p.letter;
+    hoverable(hit, `Path ${p.name}, ${p.a} to ${p.b}: ${p.count} moves`, (px, py) =>
+      showTooltip(px, py, `${p.name} (${p.letter})`, [{ color: accent, label: `${p.a} ↔ ${p.b}`, value: `${p.count} move${p.count === 1 ? "" : "s"}` }]));
+  }
+
+  const maxShare = Math.max(...f.sefirot.map(n => n.share));
+  const nodes = svg("g", { class: "tree-nodes" }, s);
+  for (const n of f.sefirot) {
+    const g = svg("g", { transform: `translate(${x(n)},${y(n)})` }, nodes);
+    svg("circle", { r: R, class: "ring" }, g);
+    if (n.share > 0) svg("circle", { r: Math.max(2.5, R * Math.sqrt(n.share / maxShare)), class: "fill" }, g);
+    // Names sit outward of the side pillars and to the right of the middle one, clear of the paths.
+    svg("text", {
+      x: n.x < 0 ? -(R + 6) : R + 6,
+      dy: "0.35em",
+      "text-anchor": n.x < 0 ? "end" : "start",
+      class: n.share === maxShare ? "name dominant" : "name",
+    }, g).textContent = n.name;
+    const share = `${Math.round(n.share * 100)}%`;
+    // The other instruments' means while the air was here, unmarked: they are context, not a series on the tree.
+    const means = instruments.filter(i => n.means[i.key] != null).map(i => ({
+      color: "transparent", label: i.label, value: formatInstrument(i, n.means[i.key]),
+    }));
+    hoverable(svg("circle", { r: R + 4, class: "hit" }, g), `${n.name}, ${n.meaning}, ${bandText(n)}: ${share} of the time`, (px, py) =>
+      showTooltip(px, py, `${n.name} · ${n.hebrew} · ${n.meaning}`, [{ color: accent, label: bandText(n), value: share }, ...means]));
+  }
+  return s;
+}
+
+const WEEK_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];  // the API's days start on Sunday
+
+function renderKabbalah() {
+  const grid = document.getElementById("kabbalah");
+  grid.replaceChildren();
+  if (!state.kabbalah) return;
+  document.getElementById("kabbalah-disclaimer").textContent = state.kabbalah.disclaimer;
+
+  for (const f of state.kabbalah.findings) {
+    const card = html("article", { class: `oracle-card ${["tree", "llull", "coincidences"].includes(f.id) ? "wide" : ""}` }, grid);
+    let text = card;
+    if (f.id === "tree") {
+      const layout = html("div", { class: "tree-layout" }, card);
+      layout.append(treeSvg(f, state.kabbalah.instruments.filter(i => i.key !== state.kabbalah.breath)));
+      text = html("div", { class: "tree-text" }, layout);
+    }
+    html("h3", {}, text, f.title);
+    if (f.id === "gematria" || f.id === "temurah") {
+      html("p", { class: "numeral hebrew", lang: "he", dir: "rtl" }, text, f.headline);
+    } else {
+      html("p", { class: "headline" }, text, f.headline);
+    }
+    withHebrew(html("p", { class: "body" }, text), f.body);
+
+    if (f.id === "tree") {
+      const pillars = html("p", { class: "pillars" }, text);
+      for (const [name, trend] of [["Severity", "rising"], ["Balance", "steady"], ["Mercy", "falling"]]) {
+        const item = html("span", {}, pillars);
+        html("b", {}, item, name);
+        item.append(` = CO₂ ${trend}`);
+      }
+      html("p", { class: "tree-note" }, text, "Height on the tree is how much CO₂; the pillar is where it is heading. Disc area is time spent there; path width is how often the air moved along it.");
+    } else if (f.id === "week") {
+      const bars = html("div", { class: "bars" }, card);
+      const means = f.days.map(d => d.mean).filter(m => m !== null);
+      const top = Math.max(...means);
+      f.days.forEach((d, i) => {
+        const rowClass = d.today ? "row-dominant" : "";
+        const label = html("span", { class: `label ${rowClass}` }, bars, WEEK_SHORT[i] + " ");
+        html("small", {}, label, d.sefira);
+        const track = html("span", { class: `track ${rowClass}` }, bars);
+        if (d.mean !== null) html("span", { class: "bar", style: `width:${(d.mean / top * 100).toFixed(1)}%` }, track);
+        html("span", { class: "pct" }, bars, d.mean === null ? "–" : fmtInt.format(d.mean));
+      });
+    } else if (f.id === "llull") {
+      const chant = html("p", { class: "chant", lang: "he", dir: "rtl", "aria-label": "The chant around the first Name heard" }, text);
+      const [a, b] = f.mark || [f.excerpt.length, f.excerpt.length];
+      const [before, after] = f.excerpt_cut;
+      chant.append(before ? "…" : "", f.excerpt.slice(0, a));
+      if (f.mark) html("mark", {}, chant, f.excerpt.slice(a, b));
+      chant.append(f.excerpt.slice(b), after ? "…" : "");
+      const speaking = f.voices.filter(v => v.found > 0);
+      if (f.voices.length > 1 && speaking.length) {
+        const voices = html("p", { class: "voices" }, text);
+        speaking.forEach((v, i) => {
+          const item = html("span", {}, voices);
+          html("b", {}, item, v.label);
+          item.append(` ${v.found} / ${fmt1.format(v.expected)}`);
+          if (i < speaking.length - 1) voices.append(" · ");
+        });
+        const silent = f.voices.length - speaking.length;
+        if (silent) voices.append(` · ${silent} silent`);
+        html("p", { class: "tree-note" }, text, "Words heard / words its letters would give shuffled, per instrument.");
+      }
+      const chips = html("div", { class: "name-chips" }, text);
+      for (const n of f.names) {
+        const chip = html("span", { class: "name-chip" }, chips);
+        html("bdi", { lang: "he", class: "word" }, chip, n.word);
+        chip.append(` ${n.meaning} `);
+        html("span", { class: "count" }, chip, `×${n.count}`);
+      }
+    } else if (f.id === "coincidences") {
+      const list = html("div", { class: "coincidence-list" }, text);
+      for (const c of f.coincidences) {
+        const row = html("div", { class: "coincidence" }, list);
+        html("span", { class: "pair" }, row, `${c.value} · ${c.sacred}`);
+        withHebrew(html("span", {}, row), c.text);
+      }
+    } else if (f.id === "vessels") {
+      // Share of the time each vessel spent broken, on a common 0–100% scale.
+      const bars = html("div", { class: "bars" }, card);
+      for (const v of f.vessels) {
+        const rowClass = v.broken ? "row-dominant" : "";
+        const label = html("span", { class: `label ${rowClass}` }, bars, `${v.label} `);
+        html("small", {}, label, `≥${v.limit} ${v.unit}`);
+        const track = html("span", { class: `track ${rowClass}` }, bars);
+        if (v.exile_share > 0) html("span", { class: "bar", style: `width:${(v.exile_share * 100).toFixed(1)}%` }, track);
+        html("span", { class: "pct" }, bars, `${Math.round(v.exile_share * 100)}%`);
+      }
+      html("p", { class: "tree-note" }, card, "Share of the time each vessel lay broken; bold ones are broken now.");
+    }
+
+    html("p", { class: "certainty" }, text, f.certainty);
+  }
+}
+
 // ---------- data flow ----------
 
 async function refresh({ rangeChanged = false } = {}) {
@@ -581,15 +767,17 @@ async function refresh({ rangeChanged = false } = {}) {
   if (rangeChanged) charts.forEach(c => c.classList.add("loading"));
   const r = encodeURIComponent(state.range);
   try {
-    const [latest, series, oracle] = await Promise.all([
+    const [latest, series, oracle, kabbalah] = await Promise.all([
       getJSON("api/latest"),
       getJSON(`api/series?range=${r}`),
       getJSON(`api/oracle?range=${r}`),
+      getJSON(`api/kabbalah?range=${r}`),
     ]);
-    Object.assign(state, { latest, series, oracle });
+    Object.assign(state, { latest, series, oracle, kabbalah });
     renderTiles();
     renderCharts();
     renderOracle();
+    renderKabbalah();
   } catch (e) {
     const status = document.getElementById("recorder-status");
     status.classList.remove("live");
