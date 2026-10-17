@@ -3,3 +3,4 @@ __pycache__/
 *.egg-info/
 *.sqlite3*
 .worktrees/
+.claude/worktrees/
