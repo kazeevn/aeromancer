@@ -116,7 +116,11 @@ def main(argv=None):
         )
 
     def serving(p):
-        p.add_argument("--host", default="127.0.0.1")
+        where = p.add_mutually_exclusive_group()
+        where.add_argument("--host", default="127.0.0.1")
+        where.add_argument(
+            "--public", dest="host", action="store_const", const="0.0.0.0", help="serve on all interfaces (no auth!)"
+        )
         p.add_argument("--port", type=int, default=8000)
 
     p = sub.add_parser("run", help="record and serve the dashboard")

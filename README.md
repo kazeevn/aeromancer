@@ -25,6 +25,10 @@ python3 -m aeromancer serve          # dashboard only (reads the same database)
 python3 -m aeromancer oracle --range 7d   # the analysis, in the terminal
 ```
 
+`run` and `serve` listen on localhost only; add `--public` to serve the
+dashboard on all interfaces, e.g. to read it from your phone. It has no
+login, so anyone on the network can see it.
+
 Readings go to `~/.local/share/aeromancer/readings.sqlite3` (override with
 `--db`), at most one per quantity every 5 s (`--min-interval`). A database at
 the pre-rename location, `~/.local/share/co2monitor/`, is still used if it is
