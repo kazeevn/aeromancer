@@ -6,12 +6,18 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
 
+[project.optional-dependencies]
+blueair = ["blueair-api>=1.56; python_version >= '3.12'"]
+
 [project.scripts]
 aeromancer = "aeromancer.__main__:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["aeromancer"]
 
 [tool.setuptools.package-data]
 aeromancer = ["static/*"]

@@ -16,7 +16,7 @@ from .device import Reading
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS readings (
     ts       REAL NOT NULL,  -- unix time, seconds
-    quantity TEXT NOT NULL,  -- co2 | temperature | humidity | op_XX (undocumented codes)
+    quantity TEXT NOT NULL,  -- co2 | temperature | humidity | op_XX (undocumented codes) | blueair_<sensor>
     value    REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS readings_quantity_ts ON readings (quantity, ts);
@@ -54,6 +54,10 @@ class Store:
     def span(self) -> tuple[float, float] | None:
         first, last = self.db.execute("SELECT MIN(ts), MAX(ts) FROM readings").fetchone()
         return None if first is None else (first, last)
+
+    def last_ts(self, pattern: str) -> float | None:
+        """Time of the newest reading of any quantity matching the GLOB ``pattern``."""
+        return self.db.execute("SELECT MAX(ts) FROM readings WHERE quantity GLOB ?", (pattern,)).fetchone()[0]
 
     def count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM readings").fetchone()[0]

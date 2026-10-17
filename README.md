@@ -4,7 +4,8 @@ Records the ZyAura / Holtek "USB-zyTemp" CO₂ meter (USB `04d9:a052`), stores
 the readings in SQLite, draws them on a local dashboard, and runs a
 strictly pseudo-scientific analysis of your air.
 
-Pure Python standard library (3.11+): no packages to install.
+Pure Python standard library (3.11+): no packages to install, unless you
+also want the optional Blueair purifier poller.
 
 ## Setup
 
@@ -43,6 +44,37 @@ To try the dashboard without the meter:
 python3 -m aeromancer --db /tmp/demo.sqlite3 simulate --days 14
 python3 -m aeromancer --db /tmp/demo.sqlite3 serve
 ```
+
+## Blueair purifier
+
+Optionally, the recorder also polls a Blueair Classic i-series purifier
+(280i, 480i, 680i, ...) through Blueair's cloud, using
+[blueair_api](https://github.com/dahlb/blueair_api). This is the one part
+that needs packages (and Python 3.12+):
+
+```sh
+uv venv && uv pip install -e '.[blueair]'   # or: python3 -m venv .venv && .venv/bin/pip install -e '.[blueair]'
+```
+
+Put the Blueair app login in `~/.config/aeromancer/blueair.toml` (or pass
+another file with `--blueair-config`), readable only by you (`chmod 600`):
+
+```toml
+username = "you@example.com"
+password = "secret"
+device = "Bedroom"  # optional: purifier name or uuid; default: the first one
+```
+
+With that file present, `run` and `record` poll the purifier every 5 minutes
+next to the meter; `python3 -m aeromancer blueair` polls only the purifier.
+The cloud keeps one point per 5 minutes, and after a gap the poller fetches
+what it missed, up to a day back. Points are stored as `blueair_pm25`,
+`blueair_pm10`, `blueair_pm1`, `blueair_voc`, `blueair_co2`,
+`blueair_temperature`, `blueair_humidity`, `blueair_all_pollution` (whichever
+the model has) and `blueair_fan_speed`.
+
+For the systemd unit, point its `ExecStart` at
+`%h/projects/co2-monitor/.venv/bin/python3` so it finds the package.
 
 ## The dashboard
 

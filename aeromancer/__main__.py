@@ -1,4 +1,4 @@
-"""Command line: ``python -m aeromancer {run,record,serve,oracle,simulate}``."""
+"""Command line: ``python -m aeromancer {run,record,blueair,serve,oracle,simulate}``."""
 
 from __future__ import annotations
 
@@ -9,21 +9,48 @@ import random
 import sys
 import textwrap
 import time
+import tomllib
 from pathlib import Path
 
-from . import server
+from . import blueair, server
 from .device import Reading
 from .recorder import record, start_in_background
 from .store import Store, default_path
 
 
+def start_blueair(args) -> None:
+    """Poll the purifier alongside the meter if a Blueair login is configured."""
+    try:
+        config = blueair.load_config(args.blueair_config)
+        if config is None:
+            return
+        blueair.check_installed()
+    except (blueair.Unavailable, ValueError, tomllib.TOMLDecodeError) as e:
+        logging.error("%s; not polling the purifier", e)
+        return
+    blueair.start_in_background(args.db, config)
+
+
 def cmd_run(args):
+    start_blueair(args)
     status, _ = start_in_background(args.db, device=args.device, min_interval=args.min_interval)
     server.serve(args.db, args.host, args.port, recorder=status)
 
 
 def cmd_record(args):
+    start_blueair(args)
     record(args.db, device=args.device, min_interval=args.min_interval)
+
+
+def cmd_blueair(args):
+    try:
+        config = blueair.load_config(args.blueair_config)
+        if config is None:
+            sys.exit(f"put the Blueair app login in {args.blueair_config} (see README)")
+        blueair.check_installed()
+    except (blueair.Unavailable, ValueError, tomllib.TOMLDecodeError) as e:
+        sys.exit(str(e))
+    blueair.poll(args.db, config)
 
 
 def cmd_serve(args):
@@ -81,6 +108,12 @@ def main(argv=None):
     def recording(p):
         p.add_argument("--device", help="hidraw node (default: autodetect 04d9:a052)")
         p.add_argument("--min-interval", type=float, default=5.0, help="seconds between stored readings")
+        purifier(p)
+
+    def purifier(p):
+        p.add_argument(
+            "--blueair-config", type=Path, default=blueair.default_config_path(), help="Blueair login (default: %(default)s)"
+        )
 
     def serving(p):
         p.add_argument("--host", default="127.0.0.1")
@@ -94,6 +127,10 @@ def main(argv=None):
     p = sub.add_parser("record", help="record only")
     recording(p)
     p.set_defaults(func=cmd_record)
+
+    p = sub.add_parser("blueair", help="poll the Blueair purifier only")
+    purifier(p)
+    p.set_defaults(func=cmd_blueair)
 
     p = sub.add_parser("serve", help="serve the dashboard only")
     serving(p)
