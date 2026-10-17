@@ -2,9 +2,11 @@ Does Blueair cloud only store a week of data? (On 2026-10-17 it returned 14 days
 Online DB
 Add CLI endpoint
 
+More data:
 Google Health
 Blutooth & WiFi devices
 SP power & water
+Laptop's camera an mirophone
 
 Put the zyTemp next to the purifier to study Blueair's eCO2 (see ../blueair-eco2.md).
 Put the meter on the purifier's intake side (right side), not by the outlet, since the outlet air
