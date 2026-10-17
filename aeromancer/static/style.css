@@ -19,6 +19,14 @@
   --serious: #ec835a;
   --critical: #d03b3b;
   --oracle-accent: #6250d6;
+  --rival: #e34948;
+  --wood: #1baf7a;
+  --fire: #e34948;
+  --earth: #eda100;
+  --metal: #898781;
+  --water: #2a78d6;
+  --key-white: #fcfcfb;
+  --key-black: #2c2c2a;
   --font: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
@@ -38,6 +46,13 @@
     --series-pm10: #9085e9;
     --series-outdoor: #008300;
     --oracle-accent: #9085e9;
+    --rival: #e66767;
+    --wood: #199e70;
+    --fire: #e66767;
+    --earth: #c98500;
+    --water: #3987e5;
+    --key-white: #c3c2b7;
+    --key-black: #0d0d0d;
   }
 }
 :root[data-theme="dark"] {
@@ -56,6 +71,13 @@
   --series-pm10: #9085e9;
   --series-outdoor: #008300;
   --oracle-accent: #9085e9;
+  --rival: #e66767;
+  --wood: #199e70;
+  --fire: #e66767;
+  --earth: #c98500;
+  --water: #3987e5;
+  --key-white: #c3c2b7;
+  --key-black: #0d0d0d;
 }
 
 * { box-sizing: border-box; }
@@ -255,7 +277,6 @@ button:focus-visible, .chart svg:focus-visible {
   gap: 12px;
 }
 .oracle-card { padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; position: relative; overflow: hidden; }
-.oracle-card.wide { grid-column: 1 / -1; }
 .oracle-card .headline { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
 .oracle-card .body { color: var(--text-secondary); font-size: 14px; }
 .oracle-card .certainty { margin-top: auto; padding-top: 4px; font-size: 12px; color: var(--text-muted); }
@@ -308,9 +329,207 @@ button:focus-visible, .chart svg:focus-visible {
 .meter .fill { position: absolute; left: 0; top: 11px; height: 4px; border-radius: 2px; background: var(--oracle-accent); }
 .meter-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
+/* The Oracle's sections and their grid */
+.oracle-section { margin-top: 26px; }
+.oracle-section:first-child { margin-top: 0; }
+.section-title {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.section-title::after { content: ""; flex: 1; height: 1px; background: var(--grid); }
+.section-title .glyph { color: var(--oracle-accent); font-size: 15px; letter-spacing: 0; }
+.oracle-grid { grid-auto-flow: dense; }
+.oracle-grid.pair { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+@media (min-width: 600px) { .oracle-card.span-2 { grid-column: span 2; } }
+.oracle-card.wide { grid-column: 1 / -1; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.oracle-card:target { box-shadow: 0 0 0 2px var(--oracle-accent); }
+.card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 18px; }
+.figure-legend { margin-top: 2px; }
+.key-dot { width: 8px; height: 8px; border-radius: 50%; vertical-align: 0; }
+.key-dash { width: 14px; height: 0; border-top: 2px dashed currentColor; vertical-align: 3px; }
+.key-swatch { width: 12px; height: 10px; border-radius: 2px; vertical-align: -1px; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+
+/* Omens: the Oracle's headlines, under the page header */
+.omens { display: flex; flex-wrap: wrap; gap: 6px; margin: -6px 0 16px; }
+.omens a {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 11px 3px 9px; border-radius: 999px;
+  font-size: 12.5px; color: var(--text-secondary); text-decoration: none;
+  background: var(--surface-1); box-shadow: 0 0 0 1px var(--border);
+}
+.omens a:hover, .omens a:focus-visible { color: var(--text-primary); box-shadow: 0 0 0 1px color-mix(in srgb, var(--oracle-accent) 50%, transparent); outline: none; }
+.omens .glyph { display: inline-flex; color: var(--oracle-accent); font-size: 14px; line-height: 1; }
+.omens .ghost { width: 12px; height: 15px; animation: none; }
+
+/* The I Ching */
+.iching { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; margin: 2px 0; }
+.hex-lines { display: grid; grid-template-columns: 48px 112px 14px minmax(0, 1fr); column-gap: 10px; row-gap: 7px; align-items: center; flex: 1 1 340px; }
+.trigram { grid-column: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.trigram .lines-svg rect, .omens .lines-svg rect { fill: var(--oracle-accent); }
+.tri-name { font-size: 11px; line-height: 1; color: var(--text-muted); }
+.hex-bar { grid-column: 2; display: block; }
+.hex-bar rect { fill: var(--text-primary); }
+.hex-bar.changing rect { fill: var(--oracle-accent); }
+.mark { grid-column: 3; color: var(--oracle-accent); font-weight: 700; font-size: 13px; text-align: center; }
+.line-label { grid-column: 4; font-size: 12.5px; color: var(--text-muted); line-height: 1.25; }
+@media (min-width: 600px) { .line-label { white-space: nowrap; } }
+#omen-horoscope .body { font-size: 16.5px; line-height: 1.6; color: var(--text-primary); }
+.line-label .who { color: var(--text-secondary); font-weight: 550; }
+.becomes { display: flex; align-items: center; gap: 10px; }
+.hex-mini { display: grid; gap: 3px; }
+.hex-mini .hex-bar rect { fill: var(--text-muted); }
+.becomes-label { font-size: 11.5px; color: var(--text-muted); }
+.becomes-name { font-size: 13.5px; font-weight: 600; }
+
+/* The sensor society */
+.network { display: block; width: 100%; height: auto; overflow: visible; }
+.network .edge { fill: none; stroke-linecap: round; pointer-events: none; transition: stroke-opacity 120ms; }
+.network .edge.friend { stroke: var(--text-secondary); }
+.network .edge.rival { stroke: var(--rival); stroke-dasharray: 5 4; }
+.network .edge.soulmates { stroke: var(--oracle-accent); }
+.network .edge-hit { fill: none; stroke: transparent; stroke-width: 10; pointer-events: stroke; }
+.network .edge-mark { pointer-events: none; }
+.network .edge-mark circle { fill: var(--surface-1); }
+.network .edge-mark.soulmates path { fill: var(--oracle-accent); }
+.network .edge-mark.nemeses path { fill: none; stroke: var(--rival); stroke-width: 2.2; stroke-linecap: round; }
+.network .node { outline: none; transition: opacity 120ms; }
+.network .node-label { font-size: 12px; fill: var(--text-secondary); }
+.network.focused .edge:not(.on) { stroke-opacity: 0.06; }
+.network.focused .edge-mark { opacity: 0.25; }
+.network.focused .node:not(.on) { opacity: 0.3; }
+.network .node.on .node-label { fill: var(--text-primary); font-weight: 600; }
+
+/* The household choir */
+.listen {
+  font: inherit; font-size: 12.5px; font-weight: 600;
+  padding: 4px 12px; border: 0; border-radius: 999px; cursor: pointer;
+  background: var(--wash); color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--border);
+}
+.listen:hover { background: color-mix(in srgb, var(--oracle-accent) 14%, transparent); }
+.listen[aria-pressed="true"] { background: var(--oracle-accent); color: #fff; box-shadow: none; }
+.keyboard { display: block; width: 100%; height: auto; overflow: visible; }
+.keyboard .white-key { fill: var(--key-white); stroke: var(--axis); stroke-width: 1; }
+.keyboard .black-key { fill: var(--key-black); }
+.keyboard .octave-label { font-size: 10px; fill: var(--text-muted); }
+.keyboard .voice, .keyboard .earth { outline: none; }
+.keyboard .earth path { fill: var(--oracle-accent); }
+.keyboard .earth text { font-size: 10px; font-weight: 600; fill: var(--oracle-accent); }
+.voices { display: flex; flex-wrap: wrap; gap: 3px 14px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--text-secondary); }
+.voices i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+.voices b { color: var(--text-primary); font-weight: 600; }
+.voices small { color: var(--text-muted); }
+
+/* Souls present */
+.ghosts { display: flex; align-items: flex-end; gap: 6px; min-height: 36px; }
+.ghost { overflow: visible; animation: float 4s ease-in-out infinite; }
+@keyframes float { 50% { transform: translateY(-3px); } }
+.ghost.inverted { animation: none; transform: scaleY(-1); }
+.ghost .outline { fill: none; stroke: var(--oracle-accent); stroke-width: 1.2; stroke-opacity: 0.55; }
+.ghost .body { fill: var(--oracle-accent); }
+.ghost .eye { fill: var(--oracle-accent); }
+.ghost .eye.lit { fill: var(--surface-1); }
+.ghosts .more { font-size: 13px; color: var(--text-secondary); }
+.spark-row { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-muted); }
+@media (prefers-reduced-motion: reduce) { .ghost { animation: none; } }
+
+/* Birth certificates */
+.births { display: grid; grid-template-columns: 22px minmax(0, 1fr) repeat(3, 36px); gap: 7px 8px; align-items: center; font-size: 12.5px; }
+.births-head { font-size: 10.5px; color: var(--text-muted); text-align: center; }
+.sign-glyph { font-size: 18px; color: var(--oracle-accent); text-align: center; }
+.member { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.member-name { font-weight: 550; }
+.member small { color: var(--text-muted); font-size: 11.5px; }
+.rhythm .track { fill: var(--grid); }
+.rhythm .bar { fill: var(--oracle-accent); }
+.rhythm .zero { fill: var(--axis); }
+.rhythm.critical .bar { fill: var(--rival); }
+
+/* The celestial clock */
+.clock { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 24px; }
+.wheel { flex: 1 1 300px; max-width: 470px; width: 100%; height: auto; overflow: visible; }
+.wheel .hour { stroke: var(--surface-1); stroke-width: 1.5; }
+.wheel .hour.day { fill: var(--wash); }
+.wheel .hour.night { fill: color-mix(in srgb, var(--text-primary) 10%, transparent); }
+.wheel .hour.now { fill: color-mix(in srgb, var(--oracle-accent) 30%, transparent); }
+.wheel .hour-glyph { font-size: 12px; fill: var(--text-secondary); pointer-events: none; }
+.wheel .ring { fill: none; stroke: var(--grid); }
+.wheel .cusp { stroke: var(--grid); }
+.wheel .angle { stroke: var(--axis); }
+.wheel .angle-label { font-size: 10px; font-weight: 600; letter-spacing: 0.03em; fill: var(--text-muted); }
+.wheel .house-num { font-size: 9.5px; fill: var(--text-muted); }
+.wheel .aspect { stroke-width: 1.25; stroke-opacity: 0.75; }
+.wheel .aspect.harmonious { stroke: var(--oracle-accent); }
+.wheel .aspect.tense { stroke: var(--rival); }
+.wheel .hand { stroke: var(--oracle-accent); stroke-width: 2; stroke-linecap: round; }
+.wheel .hand-tip { fill: var(--oracle-accent); }
+.wheel .core { fill: var(--surface-1); stroke: var(--grid); }
+.wheel .core-glyph { font-size: 20px; fill: var(--oracle-accent); }
+.wheel .planet { outline: none; }
+.wheel .sky-disc { fill: var(--surface-1); }
+.wheel .sky-glyph { font-size: 15px; fill: var(--oracle-accent); }
+.clock-side { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.planet-list { columns: 2 200px; column-gap: 24px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; }
+.planet-list li { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; gap: 6px; padding: 1.5px 0; break-inside: avoid; }
+.planet-list i { width: 8px; height: 8px; border-radius: 50%; justify-self: center; }
+.planet-list .sky-glyph { color: var(--oracle-accent); text-align: center; }
+.planet-list .planet-name { color: var(--text-secondary); }
+.planet-list .planet-time { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* Five elements of the island */
+.pentagon { display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto; overflow: visible; }
+.pentagon .cycle { fill: none; }
+.pentagon .feeds { stroke: var(--axis); stroke-width: 1.5; }
+.pentagon .checks { stroke: var(--axis); stroke-width: 1; stroke-opacity: 0.6; }
+.pentagon .strikes { stroke: var(--rival); stroke-width: 2.25; }
+.pentagon .arrowhead path { fill: var(--axis); }
+.pentagon .arrowhead.strikes path { fill: var(--rival); }
+.pentagon .element { outline: none; }
+.pentagon .element circle { stroke: var(--surface-1); stroke-width: 2; }
+.pentagon .element.excess circle { stroke: var(--rival); stroke-width: 2.5; }
+.pentagon .hanzi { fill: #fff; font-weight: 600; pointer-events: none; }
+.pentagon .hanzi.dark { fill: #0b0b0b; }
+.pentagon .element-name { font-size: 13px; font-weight: 600; fill: var(--text-primary); }
+.pentagon .element-value { font-size: 11.5px; fill: var(--text-muted); }
+.pentagon .verb { font-size: 12px; font-weight: 600; fill: var(--rival); }
+
+/* The winds */
+.rose { display: block; width: 100%; max-width: 280px; height: auto; margin: 0 auto; overflow: visible; }
+.rose .rose-ring { fill: none; stroke: var(--grid); }
+.rose .petal { fill: var(--series-outdoor); stroke: var(--surface-1); stroke-width: 2; outline: none; }
+.rose .petal:hover, .rose .petal:focus { fill: var(--oracle-accent); }
+.rose .rose-trigram rect { fill: var(--oracle-accent); }
+.rose .rose-dir { font-size: 10.5px; font-weight: 600; fill: var(--text-muted); }
+.rose .rose-calm { outline: none; }
+.rose .rose-calm circle { fill: var(--surface-1); stroke: var(--grid); }
+.rose .rose-calm text { font-size: 10px; fill: var(--text-muted); }
+
+/* The ward */
+.ward-bars .bar { border-radius: 0 4px 4px 0; }
+.ward-chart { display: block; width: 100%; height: auto; overflow: visible; }
+.ward-chart .grid-line { stroke: var(--grid); }
+.ward-chart .base-line { stroke: var(--axis); }
+.ward-chart .tick { font-size: 10px; fill: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ward-chart .held-back { fill: var(--oracle-accent); fill-opacity: 0.16; }
+
+/* Mercury's cycle */
+.timeline { display: block; width: 100%; height: auto; overflow: visible; }
+.timeline .track { fill: var(--wash); }
+.timeline .shadow { fill: color-mix(in srgb, var(--oracle-accent) 35%, transparent); }
+.timeline .retro { fill: var(--oracle-accent); }
+.timeline .tick-label { font-size: 11.5px; fill: var(--text-muted); }
+.timeline .now line { stroke: var(--text-primary); stroke-width: 1.5; }
+.timeline .now text { font-size: 11.5px; font-weight: 600; fill: var(--text-primary); }
+
 footer { margin-top: 32px; color: var(--text-muted); font-size: 12.5px; }
 
 @media (max-width: 560px) {
+  .wheel .house-num, .wheel .angle-label { font-size: 13px; }
+  .wheel .hour-glyph { font-size: 15px; }
+  .keyboard .octave-label, .keyboard .earth text { font-size: 14px; }
   .signal { grid-template-columns: 40px 1fr; }
   .signal .spark, .signal-stats { grid-column: 2; text-align: left; }
   .tile.hero { grid-column: 1 / -1; }

@@ -27,6 +27,9 @@ CHART_QUANTITIES = ("co2", "temperature", "humidity") + tuple(
     "blueair_" + q for q in ("co2", "pm1", "pm25", "pm10", "voc", "all_pollution", "temperature", "humidity")
 )
 ORACLE_POINTS = 2000
+ORACLE_QUANTITIES = ("humidity",) + tuple("blueair_" + q for q in ("pm25", "voc", "temperature", "humidity", "fan_speed"))
+# The first reading of each household member, its birthday.
+BIRTHS = {"zytemp": "co2", "blueair": "blueair_*", "island": nea.PREFIX + "*", "weather": weather.PREFIX + "temperature_*"}
 
 
 def parse_range(text: str) -> float | None:
@@ -52,7 +55,7 @@ def _points(rows) -> list[tuple[float, float]]:
     return [(ts, mean) for ts, mean, _, _ in rows]
 
 
-def run_oracle(store: Store, range_text: str) -> dict:
+def run_oracle(store: Store, range_text: str, outdoor_region: str | None = None, home=None) -> dict:
     start, end = _window(store, range_text)
     bucket = max(1.0, (end - start) / ORACLE_POINTS)
 
@@ -60,7 +63,34 @@ def run_oracle(store: Store, range_text: str) -> dict:
         return _points(store.series(quantity, start, end, bucket))
 
     signals = {name: p for name in store.signal_names() if (p := points(name))}
-    return oracle.analyze(points("co2"), points("temperature"), start, end, signals)
+    others = {q: points(q) for q in ORACLE_QUANTITIES}
+    regions = {r: points(nea.PREFIX + r) for r in nea.REGIONS}
+    if outdoor_region:
+        others["outdoor_pm25"] = regions[outdoor_region]
+    others["outdoor_temperature"] = _points(weather.home_series(store, home, "temperature", start, end, bucket))
+    others["outdoor_humidity"] = _points(weather.home_series(store, home, "humidity", start, end, bucket))
+    # One reading each, unaveraged: wind is paired by time and rain is summed, and degrees do not average.
+    for kind in ("wind_speed", "wind_direction", "rain"):
+        others["outdoor_" + kind] = _points(weather.home_series(store, home, kind, start, end, 1))
+    born = {member: ts for member, pattern in BIRTHS.items() if (ts := store.first_ts(pattern)) is not None}
+    # The I Ching's casters over the day before the hour, whatever the window.
+    day = end - astro.DAY
+    recent = {q: _points(store.series(q, day, end, 300)) for q in ("co2", "temperature", "blueair_pm25", "blueair_temperature")}
+    recent["outdoor_pm25"] = _points(store.series(nea.PREFIX + outdoor_region, day, end, 300)) if outdoor_region else []
+    recent["outdoor_wind_speed"] = _points(weather.home_series(store, home, "wind_speed", day, end, 300))
+    return oracle.analyze(
+        points("co2"),
+        points("temperature"),
+        start,
+        end,
+        signals,
+        others={q: p for q, p in others.items() if p},
+        regions={r: p for r, p in regions.items() if p},
+        placements=store.placements(),
+        born=born,
+        home=home,
+        recent=recent,
+    )
 
 
 class DashboardServer(ThreadingHTTPServer):
@@ -143,7 +173,7 @@ class Handler(BaseHTTPRequestHandler):
         }
 
     def oracle(self, store: Store, query):
-        return run_oracle(store, query.get("range", "24h"))
+        return run_oracle(store, query.get("range", "24h"), self.server.outdoor_region, self.server.home)
 
 
 def serve(

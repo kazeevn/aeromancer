@@ -452,6 +452,64 @@ function renderTiles() {
     : "";
 }
 
+// ---------- the Oracle ----------
+
+// Each household member wears its colour from the charts; the sky wears the Oracle's.
+const GROUP_COLORS = { zytemp: "var(--series-meter)", blueair: "var(--series-blueair)", outdoor: "var(--series-outdoor)", sky: "var(--oracle-accent)" };
+const GROUP_NAMES = { zytemp: "zyTemp", blueair: "Blueair", outdoor: "Outdoor", sky: "Sky" };
+const ELEMENT_COLORS = { Wood: "var(--wood)", Fire: "var(--fire)", Earth: "var(--earth)", Metal: "var(--metal)", Water: "var(--water)" };
+const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
+const HARMONIOUS = new Set(["trine", "sextile"]);
+
+// Where each finding goes: [id, span], span being 1, 2 (columns) or "wide" (the whole row). A "pair"
+// section has two equal columns. Anything unlisted lands in a last section.
+const ORACLE_SECTIONS = [
+  { title: "Today", glyph: "✦", pair: true, cards: [["horoscope"], ["iching"]] },
+  { title: "The household", glyph: "⌂", pair: true, cards: [["society"], ["choir"], ["souls"], ["births"], ["signals", "wide"]] },
+  { title: "The heavens", glyph: "☉", cards: [["clock", "wide"], ["moon"], ["mercury"], ["zodiac"], ["schumann"]] },
+  { title: "The island", glyph: "☴", cards: [["elements", 2], ["winds"], ["ward"]] },
+  { title: "Numbers and energies", glyph: "∞", cards: [["aura"], ["chakra"], ["golden"], ["numerology"]] },
+];
+
+const signed = (v, digits = 2) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(digits)}`;
+const cents = c => `${c >= 0 ? "+" : "−"}${Math.abs(Math.round(c))}¢`;
+const capitalize = s => s.charAt(0).toUpperCase() + s.slice(1);
+
+function duration(seconds) {
+  return seconds >= 5400 ? `${fmt1.format(seconds / 3600)} h` : `${Math.round(seconds / 60)} min`;
+}
+
+function headline(f) {
+  return html("p", { class: "headline" }, null, f.headline);
+}
+
+function bodyText(card, f) {
+  html("p", { class: "body" }, card, f.body);
+}
+
+// items: [{ key: "dot" | "line" | "dash" | "swatch", color, label }]
+function legendRow(parent, items) {
+  const row = html("p", { class: "legend figure-legend" }, parent);
+  for (const it of items) {
+    const item = html("span", { class: "item" }, row);
+    html("span", { class: `key key-${it.key}`, style: it.key === "dash" ? `color:${it.color}` : `background:${it.color}` }, item);
+    item.append(it.label);
+  }
+  return row;
+}
+
+// The shared tooltip, for a mark that is hovered or focused; ``lines`` may be a function, called when shown.
+function hoverTip(el, title, lines) {
+  const show = e => {
+    const box = el.getBoundingClientRect();
+    showTooltip(e?.clientX ?? box.left + box.width / 2, e?.clientY ?? box.top + box.height / 2, title, typeof lines === "function" ? lines() : lines);
+  };
+  el.addEventListener("pointermove", show);
+  el.addEventListener("pointerleave", hideTooltip);
+  el.addEventListener("focus", () => show());
+  el.addEventListener("blur", hideTooltip);
+}
+
 function moonSvg(phase) {
   const r = 30;
   const s = svg("svg", { class: "moon-svg", width: 76, height: 76, viewBox: "-38 -38 76 76", "aria-hidden": "true" });
@@ -480,8 +538,8 @@ function meter(fraction, scale) {
   return wrap;
 }
 
-function sparkline(values) {
-  const W = 128, H = 30, pad = 3;
+function sparkline(values, W = 128, H = 30) {
+  const pad = 3;
   const s = svg("svg", { class: "spark", width: W, height: H, viewBox: `0 0 ${W} ${H}`, "aria-hidden": "true" });
   const lo = Math.min(...values), hi = Math.max(...values);
   const x = i => pad + (i / Math.max(1, values.length - 1)) * (W - 2 * pad);
@@ -492,104 +550,754 @@ function sparkline(values) {
   return s;
 }
 
-const ORACLE_ORDER = ["horoscope", "aura", "moon", "mercury", "chakra", "zodiac", "schumann", "golden", "numerology", "signals"];
+// ---------- the figures, one per finding ----------
 
-function renderOracle() {
-  const grid = document.getElementById("oracle");
-  grid.replaceChildren();
-  if (!state.oracle) return;
-  document.getElementById("disclaimer").textContent = state.oracle.disclaimer;
-  const findings = [...state.oracle.findings].sort((a, b) => ORACLE_ORDER.indexOf(a.id) - ORACLE_ORDER.indexOf(b.id));
+function plainFigure(card, f) {
+  card.append(headline(f));
+  bodyText(card, f);
+}
 
-  for (const f of findings) {
-    const card = html("article", { class: `oracle-card ${["horoscope", "signals"].includes(f.id) ? "wide" : ""}` }, grid);
-    html("h3", {}, card, f.title);
-    let figure = null;
-    const text = () => {
-      const box = html("div");
-      html("p", { class: "headline" }, box, f.headline);
-      return box;
-    };
+function auraFigure(card, f) {
+  const figure = html("div", { class: "figure" }, card);
+  html("div", {
+    class: "aura-orb",
+    style: `background: radial-gradient(circle at 40% 35%, hsl(${f.hue} ${f.saturation}% 88%), hsl(${f.hue} ${f.saturation}% 60% / .85) 45%, hsl(${f.hue} ${f.saturation}% 50% / 0) 72%)`,
+    "aria-hidden": "true",
+  }, figure);
+  figure.append(headline(f));
+  bodyText(card, f);
+}
 
-    if (f.id === "aura") {
-      figure = html("div", { class: "figure" }, card);
-      html("div", {
-        class: "aura-orb",
-        style: `background: radial-gradient(circle at 40% 35%, hsl(${f.hue} ${f.saturation}% 88%), hsl(${f.hue} ${f.saturation}% 60% / .85) 45%, hsl(${f.hue} ${f.saturation}% 50% / 0) 72%)`,
-        "aria-hidden": "true",
-      }, figure);
-      figure.append(text());
-    } else if (f.id === "moon") {
-      figure = html("div", { class: "figure" }, card);
-      figure.append(moonSvg(f.phase), text());
-    } else if (f.id === "numerology") {
-      html("p", { class: "numeral" }, card, f.headline);
-    } else {
-      card.append(text());
-    }
+function moonFigure(card, f) {
+  const figure = html("div", { class: "figure" }, card);
+  figure.append(moonSvg(f.phase), headline(f));
+  bodyText(card, f);
+}
 
-    html("p", { class: "body" }, card, f.body);
+function numerologyFigure(card, f) {
+  html("p", { class: "numeral" }, card, f.headline);
+  bodyText(card, f);
+}
 
-    if (f.id === "chakra") {
-      const bars = html("div", { class: "bars" }, card);
-      const dominant = Math.max(...f.bands.map(b => b.share));
-      for (const b of f.bands) {
-        const rowClass = b.share === dominant ? "row-dominant" : "";
-        const label = html("span", { class: `label ${rowClass}` }, bars, b.name + " ");
-        html("small", {}, label, b.upper === null ? "2000+" : `<${b.upper}`);
-        const track = html("span", { class: `track ${rowClass}` }, bars);
-        if (b.share > 0) html("span", { class: "bar", style: `width:${(b.share / dominant * 100).toFixed(1)}%` }, track);
-        html("span", { class: "pct" }, bars, `${Math.round(b.share * 100)}%`);
-      }
-    } else if (f.id === "zodiac") {
-      card.querySelector(".body").remove();
-      const rows = html("div", { class: "glyph-rows" }, card);
-      for (const s of f.signs) {
-        html("span", { class: "glyph", "aria-hidden": "true" }, rows, s.glyph);
-        const d = html("span", {}, rows);
-        html("span", { class: "sign" }, d, `${s.role} in ${s.sign}`);
-        html("div", { class: "why" }, d, s.why);
-      }
-    } else if (f.id === "signals") {
-      const list = html("div", { class: "signals" }, card);
-      for (const s of f.signals) {
-        const row = html("div", { class: "signal" }, list);
-        html("code", { class: "op" }, row, s.op);
-        const text = html("div", {}, row);
-        html("div", { class: "persona" }, text, s.persona);
-        html("div", { class: "reading" }, text, s.reading);
-        row.append(sparkline(s.spark));
-        const stats = html("div", { class: "signal-stats" }, row);
-        html("div", {}, stats, s.min === s.max ? fmtInt.format(s.min) : `${fmtInt.format(s.min)}–${fmtInt.format(s.max)}`);
-        const r = s.follows ? s.correlations[s.follows] : null;
-        html("div", {}, stats, r === null ? "follows nothing" : `r ${r >= 0 ? "+" : "−"}${Math.abs(r).toFixed(2)}`);
-      }
-    } else if (f.id === "schumann" && f.cents !== null) {
-      card.append(meter((f.cents + 600) / 1200, { center: true, labels: ["600¢ flat", "in tune", "600¢ sharp"] }));
-    } else if (f.id === "golden" && f.attainment !== null) {
-      card.append(meter(f.attainment, { labels: ["profane", "φ"] }));
-    }
-
-    html("p", { class: "certainty" }, card, f.certainty);
+function chakraFigure(card, f) {
+  plainFigure(card, f);
+  const bars = html("div", { class: "bars" }, card);
+  const dominant = Math.max(...f.bands.map(b => b.share));
+  for (const b of f.bands) {
+    const rowClass = b.share === dominant ? "row-dominant" : "";
+    const label = html("span", { class: `label ${rowClass}` }, bars, b.name + " ");
+    html("small", {}, label, b.upper === null ? "2000+" : `<${b.upper}`);
+    const track = html("span", { class: `track ${rowClass}` }, bars);
+    if (b.share > 0) html("span", { class: "bar", style: `width:${(b.share / dominant * 100).toFixed(1)}%` }, track);
+    html("span", { class: "pct" }, bars, `${Math.round(b.share * 100)}%`);
   }
 }
 
+function zodiacFigure(card, f) {
+  card.append(headline(f));
+  const rows = html("div", { class: "glyph-rows" }, card);
+  for (const s of f.signs) {
+    html("span", { class: "glyph", "aria-hidden": "true" }, rows, s.glyph);
+    const d = html("span", {}, rows);
+    html("span", { class: "sign" }, d, `${s.role} in ${s.sign}`);
+    html("div", { class: "why" }, d, s.why);
+  }
+}
+
+function signalsFigure(card, f) {
+  plainFigure(card, f);
+  const list = html("div", { class: "signals" }, card);
+  for (const s of f.signals) {
+    const row = html("div", { class: "signal" }, list);
+    html("code", { class: "op" }, row, s.op);
+    const text = html("div", {}, row);
+    html("div", { class: "persona" }, text, s.persona);
+    html("div", { class: "reading" }, text, s.reading);
+    row.append(sparkline(s.spark));
+    const stats = html("div", { class: "signal-stats" }, row);
+    html("div", {}, stats, s.min === s.max ? fmtInt.format(s.min) : `${fmtInt.format(s.min)}–${fmtInt.format(s.max)}`);
+    const r = s.follows ? s.correlations[s.follows] : null;
+    html("div", {}, stats, r === null ? "follows nothing" : `r ${signed(r)}`);
+  }
+}
+
+function schumannFigure(card, f) {
+  plainFigure(card, f);
+  if (f.cents !== null) card.append(meter((f.cents + 600) / 1200, { center: true, labels: ["600¢ flat", "in tune", "600¢ sharp"] }));
+}
+
+function goldenFigure(card, f) {
+  plainFigure(card, f);
+  if (f.attainment !== null) card.append(meter(f.attainment, { labels: ["profane", "φ"] }));
+}
+
+// Mercury's next (or current) retrograde, with the shadows either side of it.
+function mercuryFigure(card, f) {
+  plainFigure(card, f);
+  const { shadow_start: a, retrograde: b, direct: c, shadow_end: d } = f.cycle;
+  const now = state.latest?.now ?? Date.now() / 1000;
+  const lo = Math.min(now, a) - 2 * 86400, hi = Math.max(now, d) + 2 * 86400;
+  const W = 250, y = 18;
+  const x = t => 6 + ((t - lo) / (hi - lo)) * (W - 12);
+  const day = t => fmtDay.format(new Date(t * 1000));
+  const s = svg("svg", { class: "timeline", viewBox: `0 0 ${W} 50`, role: "img", "aria-label": `Shadow from ${day(a)}, retrograde from ${day(b)} to ${day(c)}, shadow until ${day(d)}` }, card);
+  svg("rect", { x: 6, y, width: W - 12, height: 6, rx: 3, class: "track" }, s);
+  svg("rect", { x: x(a), y, width: x(b) - x(a), height: 6, class: "shadow" }, s);
+  svg("rect", { x: x(b), y, width: x(c) - x(b), height: 6, class: "retro" }, s);
+  svg("rect", { x: x(c), y, width: x(d) - x(c), height: 6, class: "shadow" }, s);
+  [[a, "start", day(a)], [b, "middle", `℞ ${day(b)}`], [c, "middle", `D ${day(c)}`], [d, "end", day(d)]].forEach(([t, anchor, label]) => {
+    svg("text", { x: x(t), y: y + 22, "text-anchor": anchor, class: "tick-label" }, s).textContent = label;
+  });
+  const g = svg("g", { class: "now" }, s);
+  svg("line", { x1: x(now), x2: x(now), y1: y - 5, y2: y + 11 }, g);
+  svg("text", { x: x(now), y: y - 8, "text-anchor": "middle" }, g).textContent = "now";
+  legendRow(card, [
+    { key: "swatch", color: "color-mix(in srgb, var(--oracle-accent) 35%, transparent)", label: "shadow" },
+    { key: "swatch", color: "var(--oracle-accent)", label: "retrograde" },
+  ]);
+}
+
+function hexBar(yang, width, height, changing = false) {
+  const s = svg("svg", { class: `hex-bar${changing ? " changing" : ""}`, width, height, viewBox: `0 0 ${width} ${height}`, "aria-hidden": "true" });
+  const gap = Math.round(width * 0.16);
+  const parts = yang ? [[0, width]] : [[0, (width - gap) / 2], [(width + gap) / 2, (width - gap) / 2]];
+  for (const [x, w] of parts) svg("rect", { x, width: w, height, rx: Math.min(2, height / 3) }, s);
+  return s;
+}
+
+// Three (or six) lines, given from the bottom, drawn rather than trusted to a font's tiny ☰.
+function linesSvg(lines, width, attrs = {}) {
+  const bar = Math.max(2, Math.round(width / 6)), gap = Math.max(1.5, Math.round(bar * 0.7)), split = Math.round(width * 0.2);
+  const height = lines.length * bar + (lines.length - 1) * gap;
+  const s = svg("svg", { class: "lines-svg", width, height, viewBox: `0 0 ${width} ${height}`, "aria-hidden": "true", ...attrs });
+  lines.forEach((yang, i) => {
+    const y = height - (i + 1) * bar - i * gap;
+    const parts = yang ? [[0, width]] : [[0, (width - split) / 2], [(width + split) / 2, (width - split) / 2]];
+    for (const [x, w] of parts) svg("rect", { x, y, width: w, height: bar, rx: 1 }, s);
+  });
+  return s;
+}
+
+// The hexagram as cast: top line first, each with whoever cast it.
+function ichingFigure(card, f) {
+  card.append(headline(f));
+  const figure = html("div", { class: "iching" }, card);
+  const grid = html("div", { class: "hex-lines", role: "list", "aria-label": "The six lines, from the top" }, figure);
+  f.trigrams.forEach((t, k) => {  // lower, then upper
+    const tri = html("div", { class: "trigram", style: `grid-row: ${k ? 1 : 4} / span 3`, title: `${t.name}, ${t.image}` }, grid);
+    tri.append(linesSvg(t.lines, 24));
+    html("span", { class: "tri-name" }, tri, t.image);
+  });
+  f.lines.forEach((line, i) => {
+    const row = `grid-row: ${6 - i}`;
+    const bar = hexBar(line.yang, 112, 11, line.changing);
+    bar.setAttribute("style", row);
+    grid.append(bar);
+    html("span", { class: "mark", style: row, title: line.changing ? "a changing line" : "", "aria-hidden": "true" }, grid, line.changing ? (line.yang ? "○" : "×") : "");
+    const label = html("span", { class: "line-label", style: row, role: "listitem" }, grid);
+    html("span", { class: "who" }, label, line.caster);
+    label.append(` ${line.why}`);
+    if (line.changing) html("span", { class: "sr-only" }, label, ", a changing line");
+  });
+  if (f.becomes) {
+    const to = html("div", { class: "becomes" }, figure);
+    const mini = html("div", { class: "hex-mini", "aria-hidden": "true" }, to);
+    for (let i = 5; i >= 0; i--) mini.append(hexBar(f.becomes.lines[i], 36, 5));
+    const text = html("div", {}, to);
+    html("div", { class: "becomes-label" }, text, "changing into");
+    html("div", { class: "becomes-name" }, text, `${f.becomes.number}. ${f.becomes.name}`);
+  }
+  bodyText(card, f);
+}
+
+// Everyone on a circle; a curve for each pair that moves together (or against each other).
+function societyFigure(card, f) {
+  card.append(headline(f));
+  const narrow = card.clientWidth < 480;
+  const W = narrow ? 380 : 560, H = narrow ? 300 : 360, cx = W / 2, cy = H / 2, R = narrow ? 92 : 128;
+  const s = svg("svg", { class: "network", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": f.body }, card);
+  const at = new Map(f.members.map((m, i) => {
+    const a = -Math.PI / 2 + (2 * Math.PI * i) / f.members.length;
+    return [m.id, { m, a, x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) }];
+  }));
+  const isPair = (pair, e) => pair && pair.includes(e.a) && pair.includes(e.b);
+  const edges = svg("g", {}, s), marks = svg("g", {}, s), nodes = svg("g", {}, s);
+  const drawn = [];
+  for (const e of [...f.edges].reverse()) {  // the strongest on top
+    const p = at.get(e.a), q = at.get(e.b);
+    const c = { x: cx + ((p.x + q.x) / 2 - cx) * 0.3, y: cy + ((p.y + q.y) / 2 - cy) * 0.3 };  // bowed towards the middle
+    const strength = Math.min(1, (Math.abs(e.r) - 0.5) / 0.5);
+    const role = isPair(f.soulmates, e) ? "soulmates" : isPair(f.nemeses, e) ? "nemeses" : "";
+    const path = svg("path", {
+      d: `M${p.x.toFixed(1)},${p.y.toFixed(1)}Q${c.x.toFixed(1)},${c.y.toFixed(1)} ${q.x.toFixed(1)},${q.y.toFixed(1)}`,
+      class: `edge ${e.r > 0 ? "friend" : "rival"} ${role}`,
+      "stroke-width": (1 + 2.5 * strength).toFixed(2),
+      "stroke-opacity": role ? 1 : (0.25 + 0.5 * strength).toFixed(2),
+    }, edges);
+    drawn.push({ e, path });
+    const hit = svg("path", { d: path.getAttribute("d"), class: "edge-hit" }, edges);
+    hoverTip(hit, `${p.m.label} and ${q.m.label}`, [{ color: e.r > 0 ? "var(--text-secondary)" : "var(--rival)", label: e.r > 0 ? "move together" : "move apart", value: `r ${signed(e.r)}` }]);
+    if (role) {  // a heart for the soulmates, a cross for the nemeses, halfway along their curve
+      const mx = 0.25 * p.x + 0.5 * c.x + 0.25 * q.x, my = 0.25 * p.y + 0.5 * c.y + 0.25 * q.y;
+      const mark = svg("g", { class: `edge-mark ${role}`, transform: `translate(${mx.toFixed(1)},${my.toFixed(1)})` }, marks);
+      svg("circle", { r: 10 }, mark);
+      if (role === "soulmates") svg("path", { d: "M0 5.5C-1 4.6-6 1.6-6-1.8-6-3.9-4.5-5.2-2.9-5.2-1.6-5.2-.6-4.4 0-3.4.6-4.4 1.6-5.2 2.9-5.2 4.5-5.2 6-3.9 6-1.8 6 1.6 1 4.6 0 5.5Z" }, mark);
+      else svg("path", { d: "M-4-4L4 4M4-4L-4 4" }, mark);
+    }
+  }
+  const nodeEls = new Map();
+  for (const [id, p] of at) {
+    const ties = f.edges.filter(e => e.a === id || e.b === id).sort((x, y) => Math.abs(y.r) - Math.abs(x.r));
+    const g = svg("g", { class: "node", tabindex: 0, "aria-label": `${p.m.label}: ${p.m.friends} friends` }, nodes);
+    svg("circle", { cx: p.x, cy: p.y, r: 14, fill: "transparent" }, g);
+    svg("circle", { cx: p.x, cy: p.y, r: 6, fill: GROUP_COLORS[p.m.group], stroke: "var(--surface-1)", "stroke-width": 2 }, g);
+    const cos = Math.cos(p.a), sin = Math.sin(p.a);
+    svg("text", {
+      x: p.x + cos * 13, y: p.y + sin * (Math.abs(cos) < 0.3 ? 19 : 13) + 4,
+      "text-anchor": cos > 0.3 ? "start" : cos < -0.3 ? "end" : "middle", class: "node-label",
+    }, g).textContent = p.m.label;
+    nodeEls.set(id, g);
+    hoverTip(g, p.m.label, () => ties.length
+      ? ties.map(e => { const other = at.get(e.a === id ? e.b : e.a).m; return { color: GROUP_COLORS[other.group], label: other.label, value: `r ${signed(e.r)}` }; })
+      : [{ color: "var(--text-muted)", label: "talks to no one", value: "" }]);
+    const focus = on => {
+      s.classList.toggle("focused", on);
+      g.classList.toggle("on", on);
+      for (const { e, path } of drawn) path.classList.toggle("on", on && (e.a === id || e.b === id));
+      for (const e of ties) nodeEls.get(e.a === id ? e.b : e.a).classList.toggle("on", on);
+    };
+    g.addEventListener("pointerenter", () => focus(true));
+    g.addEventListener("pointerleave", () => focus(false));
+    g.addEventListener("focus", () => focus(true));
+    g.addEventListener("blur", () => focus(false));
+  }
+  const groups = [...new Set(f.members.map(m => m.group))];
+  legendRow(card, [
+    ...groups.map(g => ({ key: "dot", color: GROUP_COLORS[g], label: GROUP_NAMES[g] })),
+    { key: "line", color: "var(--text-secondary)", label: "together, r ≥ +0.5" },
+    { key: "dash", color: "var(--rival)", label: "apart, r ≤ −0.5" },
+  ]);
+  bodyText(card, f);
+}
+
+// The choir, as it sounds: each voice at its own pitch, cents and all, over the Earth's drone.
+const choirAudio = { ctx: null, master: null, nodes: [], timer: 0, playing: false };
+
+function setListening(playing) {
+  choirAudio.playing = playing;
+  for (const b of document.querySelectorAll(".listen")) {
+    b.textContent = playing ? "■ Stop" : "▶ Listen";
+    b.setAttribute("aria-pressed", String(playing));
+  }
+}
+
+function stopChoir() {
+  const { ctx, master } = choirAudio;
+  if (ctx && master) {
+    master.gain.cancelScheduledValues(ctx.currentTime);
+    master.gain.setTargetAtTime(0, ctx.currentTime, 0.06);
+    for (const n of choirAudio.nodes) n.stop(ctx.currentTime + 0.4);
+  }
+  choirAudio.nodes = [];
+  clearTimeout(choirAudio.timer);
+  setListening(false);
+}
+
+function playChoir(f) {
+  stopChoir();
+  const Context = window.AudioContext || window.webkitAudioContext;
+  if (!Context) return;
+  const ctx = (choirAudio.ctx ||= new Context());
+  ctx.resume();
+  const start = ctx.currentTime + 0.05, entry = 0.3, release = 1.8;
+  const end = start + entry * f.voices.length + 3;
+  const master = (choirAudio.master = ctx.createGain());
+  const soften = ctx.createBiquadFilter();
+  soften.type = "lowpass";
+  soften.frequency.value = 2600;
+  master.connect(soften).connect(ctx.destination);
+  master.gain.setValueAtTime(0.0001, start);
+  master.gain.exponentialRampToValueAtTime(0.8, start + 0.25);
+  master.gain.setValueAtTime(0.8, end);
+  master.gain.exponentialRampToValueAtTime(0.0001, end + release);
+  const level = 0.45 / Math.max(3, f.voices.length);
+  const sound = (hz, at, type, peak) => {
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = hz;
+    gain.gain.setValueAtTime(0, at);
+    gain.gain.linearRampToValueAtTime(peak, at + 0.15);
+    osc.connect(gain).connect(master);
+    osc.start(at);
+    osc.stop(end + release + 0.1);
+    choirAudio.nodes.push(osc);
+    return gain;
+  };
+  // The Earth hums two octaves below its note, trembling at its own 7.83 Hz.
+  const drone = sound(f.earth.hz / 4, start, "sine", level * 1.6);
+  const tremble = ctx.createOscillator(), depth = ctx.createGain();
+  tremble.frequency.value = 7.83;
+  depth.gain.value = level * 0.7;
+  tremble.connect(depth).connect(drone.gain);
+  tremble.start(start);
+  tremble.stop(end + release + 0.1);
+  choirAudio.nodes.push(tremble);
+  f.voices.forEach((v, i) => sound(v.hz, start + 0.4 + i * entry, v.group === "blueair" ? "triangle" : "sine", level));
+  setListening(true);
+  choirAudio.timer = setTimeout(stopChoir, (end + release - ctx.currentTime) * 1000 + 300);
+}
+
+function choirFigure(card, f, header) {
+  const button = html("button", { class: "listen", type: "button", "aria-pressed": "false" }, header);
+  button.addEventListener("click", () => (choirAudio.playing ? stopChoir() : playChoir(f)));
+  setListening(choirAudio.playing);
+  card.append(headline(f));
+
+  const earthMidi = Math.round(69 + 12 * Math.log2(f.earth.hz / 440));
+  const midis = f.voices.map(v => v.midi).concat(earthMidi);
+  const lo = Math.floor(Math.min(...midis) / 12) * 12, hi = Math.ceil((Math.max(...midis) + 1) / 12) * 12 - 1;
+  const isWhite = m => [0, 2, 4, 5, 7, 9, 11].includes(((m % 12) + 12) % 12);
+  const whites = [];
+  for (let m = lo; m <= hi; m++) if (isWhite(m)) whites.push(m);
+  const W = 560, top = 18, H = 104, kw = W / whites.length;
+  const s = svg("svg", { class: "keyboard", viewBox: `0 0 ${W} ${top + H + 16}`, role: "img", "aria-label": `${f.voices.length} voices on a keyboard, singing in ${f.key}` }, card);
+  const keys = new Map();
+  whites.forEach((m, i) => {
+    svg("rect", { x: i * kw + 0.5, y: top, width: kw - 1, height: H, rx: 3, class: "white-key" }, s);
+    keys.set(m, { x: i * kw + kw / 2, white: true });
+    if (m % 12 === 0) svg("text", { x: i * kw + kw / 2, y: top + H + 13, "text-anchor": "middle", class: "octave-label" }, s).textContent = `C${m / 12 - 1}`;
+  });
+  for (let m = lo; m <= hi; m++) {
+    if (isWhite(m)) continue;
+    const x = whites.indexOf(m + 1) * kw;  // between its two white neighbours
+    svg("rect", { x: x - kw * 0.3, y: top, width: kw * 0.6, height: H * 0.62, rx: 2, class: "black-key" }, s);
+    keys.set(m, { x, white: false });
+  }
+  const earth = keys.get(earthMidi);
+  const e = svg("g", { class: "earth", tabindex: 0 }, s);
+  svg("path", { d: `M${earth.x - 5},${top - 8}h10l-5,6z` }, e);
+  svg("text", { x: earth.x, y: top - 11, "text-anchor": "middle" }, e).textContent = "Earth";
+  hoverTip(e, "The Earth", [{ color: "var(--oracle-accent)", label: `${f.earth.note} ${cents(f.earth.cents)}, the Schumann resonance up 6 octaves`, value: `${fmt1.format(f.earth.hz)} Hz` }]);
+  const stacked = new Map();
+  for (const v of f.voices) {
+    const k = keys.get(v.midi);
+    const n = stacked.get(v.midi) || 0;
+    stacked.set(v.midi, n + 1);
+    const y = (k.white ? top + H - 12 : top + H * 0.62 - 10) - n * 13;
+    const g = svg("g", { class: "voice", tabindex: 0 }, s);
+    svg("circle", { cx: k.x, cy: y, r: 12, fill: "transparent" }, g);
+    svg("circle", { cx: k.x, cy: y, r: 5.5, fill: GROUP_COLORS[v.group], stroke: k.white ? "var(--key-white)" : "var(--key-black)", "stroke-width": 2 }, g);
+    hoverTip(g, v.label, [
+      { color: GROUP_COLORS[v.group], label: `${v.note}${v.octave} ${cents(v.cents)}, ${v.register}`, value: `${fmt1.format(v.hz)} Hz` },
+      { color: "transparent", label: "from a rhythm of", value: duration(v.period_s) },
+    ]);
+  }
+  const list = html("ul", { class: "voices", "aria-label": "Voices, from the lowest" }, card);
+  for (const v of f.voices) {
+    const li = html("li", {}, list);
+    html("i", { style: `background:${GROUP_COLORS[v.group]}` }, li);
+    li.append(`${v.label} `);
+    html("b", {}, li, `${v.note}${v.octave}`);
+    html("small", {}, li, ` ${cents(v.cents)}`);
+  }
+  bodyText(card, f);
+}
+
+// A soul is a ghost; part of a soul is a ghost filled part of the way.
+const GHOST = "M1 23V10a9 9 0 0 1 18 0v13l-3-2.4-3 2.4-3-2.4-3 2.4-3-2.4z";
+
+function ghosts(n, prefix = "soul") {
+  const row = html("div", { class: "ghosts", "aria-hidden": "true" });
+  if (n === null) return row;
+  const count = Math.min(6, Math.ceil(Math.abs(n)));
+  for (let i = 0; i < count; i++) {
+    const full = Math.max(0, Math.min(1, Math.abs(n) - i));
+    const s = svg("svg", { width: 30, height: 36, viewBox: "0 0 20 24", class: `ghost${n < 0 ? " inverted" : ""}`, style: `animation-delay:${-i * 0.7}s` }, row);
+    const clip = svg("clipPath", { id: `${prefix}-${i}` }, svg("defs", {}, s));
+    svg("rect", { x: 0, y: 24 * (1 - full), width: 20, height: 24 * full }, clip);
+    svg("path", { d: GHOST, class: "outline" }, s);
+    svg("path", { d: GHOST, class: "body", "clip-path": `url(#${prefix}-${i})` }, s);
+    for (const x of [7, 13]) svg("circle", { cx: x, cy: 10, r: 1.6, class: full > 0.6 ? "eye lit" : "eye" }, s);
+  }
+  if (Math.abs(n) > 6) html("span", { class: "more" }, row, `+${Math.round(Math.abs(n) - 6)}`);
+  return row;
+}
+
+function soulsFigure(card, f) {
+  card.append(ghosts(f.souls), headline(f));
+  bodyText(card, f);
+  if (f.spark.length > 1) {
+    const row = html("div", { class: "spark-row" }, card);
+    row.append(sparkline(f.spark, 220, 40));
+    html("span", {}, row, `souls over the window, from ${fmt1.format(Math.min(...f.spark))} to ${fmt1.format(Math.max(...f.spark))}`);
+  }
+}
+
+function rhythmBar(r) {
+  const W = 36, H = 12;
+  const s = svg("svg", { class: `rhythm${r.critical ? " critical" : ""}`, width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `${r.cycle} ${Math.round(r.value * 100)}%${r.critical ? ", a critical day" : ""}` });
+  svg("rect", { y: H / 2 - 1, width: W, height: 2, rx: 1, class: "track" }, s);
+  const w = Math.max(1.5, Math.abs(r.value) * (W / 2));
+  svg("rect", { x: r.value >= 0 ? W / 2 : W / 2 - w, y: 2, width: w, height: H - 4, rx: 2, class: "bar" }, s);
+  svg("rect", { x: W / 2 - 0.5, width: 1, height: H, class: "zero" }, s);
+  return s;
+}
+
+function birthsFigure(card, f) {
+  card.append(headline(f));
+  const table = html("div", { class: "births" }, card);
+  for (const label of ["", "", "phys.", "emot.", "intel."]) html("span", { class: "births-head" }, table, label);
+  for (const m of f.members) {
+    html("span", { class: "sign-glyph", title: m.sign, "aria-hidden": "true" }, table, m.glyph);
+    const who = html("span", { class: "member" }, table);
+    html("span", { class: "member-name" }, who, capitalize(m.name));
+    html("small", {}, who, `${fmtDay.format(new Date(m.born * 1000))} · ${m.sign} · ${m.element} ${m.animal}`);
+    for (const r of m.rhythms) table.append(rhythmBar(r));
+  }
+  bodyText(card, f);
+}
+
+// A day as an astrological wheel, by solar time: noon at the top, sunrise on the left, as the Sun moves.
+function clockFigure(card, f) {
+  card.append(headline(f));
+  const wrap = html("div", { class: "clock" }, card);
+  const S = 400, c = S / 2;
+  const R = { out: 172, hours: 148, houses: 124, orbit: 104, core: 22 };
+  const s = svg("svg", { class: "wheel", viewBox: `-36 0 ${S + 72} ${S}`, role: "img", "aria-label": `A day as a wheel of solar time. ${f.body}` }, wrap);
+  const pt = (h, r) => { const a = ((h - 12) / 12) * Math.PI; return [c + r * Math.sin(a), c - r * Math.cos(a)]; };
+  const span = (a, b) => (b < a ? b + 24 : b);
+  const arc = (h0, h1, r0, r1) => {
+    h1 = span(h0, h1);
+    const big = h1 - h0 > 12 ? 1 : 0;
+    const [x0, y0] = pt(h0, r1), [x1, y1] = pt(h1, r1), [x2, y2] = pt(h1, r0), [x3, y3] = pt(h0, r0);
+    return `M${x0},${y0}A${r1},${r1} 0 ${big} 1 ${x1},${y1}L${x2},${y2}A${r0},${r0} 0 ${big} 0 ${x3},${y3}Z`;
+  };
+  // The planetary hours, ruler by ruler.
+  f.hours.forEach((hour, i) => {
+    const now = f.now >= hour.start ? f.now < span(hour.start, hour.end) : f.now + 24 < span(hour.start, hour.end);
+    const seg = svg("path", { d: arc(hour.start, hour.end, R.hours, R.out), class: `hour ${i < 12 ? "day" : "night"}${now ? " now" : ""}` }, s);
+    const [x, y] = pt((hour.start + span(hour.start, hour.end)) / 2, (R.hours + R.out) / 2);
+    svg("text", { x, y: y + 4.5, "text-anchor": "middle", class: "hour-glyph" }, s).textContent = hour.glyph;
+    svg("title", {}, seg).textContent = `Hour of ${["Sun", "Moon"].includes(hour.ruler) ? "the " : ""}${hour.ruler}`;
+  });
+  for (const r of [R.hours, R.houses]) svg("circle", { cx: c, cy: c, r, class: "ring" }, s);
+  // The houses, counted from sunrise against the Sun's motion, two hours each.
+  for (let k = 1; k <= 12; k++) {
+    const cusp = (((6 - 2 * k) % 24) + 24) % 24;
+    const [x0, y0] = pt(cusp, R.core), [x1, y1] = pt(cusp, R.hours);
+    svg("line", { x1: x0, y1: y0, x2: x1, y2: y1, class: cusp % 6 === 0 ? "angle" : "cusp" }, s);
+    const [tx, ty] = pt(cusp + 1, (R.houses + R.hours) / 2);
+    svg("text", { x: tx, y: ty + 3.5, "text-anchor": "middle", class: "house-num" }, s).textContent = ROMAN[k - 1];
+  }
+  for (const [h, angle, label] of [[12, "MC", "noon"], [18, "DSC", "sunset"], [0, "IC", "midnight"], [6, "ASC", "sunrise"]]) {
+    const [x, y] = pt(h, R.out + 10);
+    const anchor = h === 18 ? "start" : h === 6 ? "end" : "middle";
+    if (h % 12 === 0) {
+      svg("text", { x, y: y + (h ? -2 : 9), "text-anchor": anchor, class: "angle-label" }, s).textContent = `${angle} · ${label}`;
+    } else {  // on the horizon there is room only for two short lines
+      svg("text", { x, y: y - 2, "text-anchor": anchor, class: "angle-label" }, s).textContent = angle;
+      svg("text", { x, y: y + 10, "text-anchor": anchor, class: "angle-label" }, s).textContent = label;
+    }
+  }
+  // Planets that would overlap step inwards.
+  const place = new Map();
+  let previous = -Infinity, lane = 0;
+  for (const p of [...f.planets].sort((a, b) => a.hour - b.hour)) {
+    lane = (p.hour - previous) * 15 < 7 ? (lane + 1) % 3 : 0;
+    previous = p.hour;
+    place.set(p.id, pt(p.hour, R.orbit - lane * 17));
+  }
+  for (const a of f.aspects) {
+    if (a.kind === "conjunction") continue;  // they touch already
+    const [x1, y1] = place.get(a.a), [x2, y2] = place.get(a.b);
+    svg("line", { x1, y1, x2, y2, class: `aspect ${HARMONIOUS.has(a.kind) ? "harmonious" : "tense"}` }, s);
+  }
+  const [hx, hy] = pt(f.now, R.out);
+  svg("line", { x1: c, y1: c, x2: hx, y2: hy, class: "hand" }, s);
+  svg("circle", { cx: hx, cy: hy, r: 3.5, class: "hand-tip" }, s);
+  const dayGlyph = f.hours[0].glyph;
+  svg("circle", { cx: c, cy: c, r: R.core, class: "core" }, s);
+  const core = svg("text", { x: c, y: c + 7, "text-anchor": "middle", class: "core-glyph" }, s);
+  core.textContent = dayGlyph;
+  svg("title", {}, core).textContent = `A day of ${["Sun", "Moon"].includes(f.day_ruler) ? "the " : ""}${f.day_ruler}`;
+  for (const p of f.planets) {
+    const [x, y] = place.get(p.id);
+    const g = svg("g", { class: "planet", tabindex: 0 }, s);
+    svg("circle", { cx: x, cy: y, r: 12, fill: "transparent" }, g);
+    if (p.group === "sky") {
+      svg("circle", { cx: x, cy: y, r: 9, class: "sky-disc" }, g);
+      svg("text", { x, y: y + 5, "text-anchor": "middle", class: "sky-glyph" }, g).textContent = p.id === "sun" ? "☉" : "☽";
+    } else {
+      svg("circle", { cx: x, cy: y, r: 5.5, fill: GROUP_COLORS[p.group], stroke: "var(--surface-1)", "stroke-width": 2 }, g);
+    }
+    hoverTip(g, p.label, [{ color: GROUP_COLORS[p.group], label: `culminates ${p.clock}`, value: `${ROMAN[p.house - 1]} house` }]);
+  }
+
+  const side = html("div", { class: "clock-side" }, wrap);
+  const list = html("ol", { class: "planet-list", "aria-label": "When each culminates" }, side);
+  for (const p of [...f.planets].sort((a, b) => a.clock.localeCompare(b.clock))) {
+    const li = html("li", {}, list);
+    if (p.group === "sky") html("span", { class: "sky-glyph", "aria-hidden": "true" }, li, p.id === "sun" ? "☉" : "☽");
+    else html("i", { style: `background:${GROUP_COLORS[p.group]}` }, li);
+    html("span", { class: "planet-name" }, li, p.label);
+    html("span", { class: "planet-time" }, li, `${p.clock} · ${ROMAN[p.house - 1]}`);
+  }
+  legendRow(side, [
+    { key: "line", color: "var(--oracle-accent)", label: "trine, sextile" },
+    { key: "line", color: "var(--rival)", label: "square, opposition" },
+  ]);
+  bodyText(side, f);
+}
+
+// The five phases on their pentagon: the generating cycle runs clockwise around it, the overcoming one across it.
+function elementsFigure(card, f) {
+  card.append(headline(f));
+  if (!f.elements.length) return bodyText(card, f);
+  const narrow = card.clientWidth < 480;
+  const W = narrow ? 360 : 520, H = narrow ? 330 : 372, cx = W / 2, cy = narrow ? 162 : 196, R = narrow ? 88 : 112;
+  const PLACES = ["Fire", "Earth", "Metal", "Water", "Wood"];
+  const s = svg("svg", { class: "pentagon", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": f.body }, card);
+  const defs = svg("defs", {}, s);
+  for (const kind of ["feeds", "checks", "strikes"]) {
+    const m = svg("marker", { id: `arrow-${kind}`, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: "auto-start-reverse", class: `arrowhead ${kind}` }, defs);
+    svg("path", { d: "M0,1L10,5L0,9z" }, m);
+  }
+  const biggest = Math.max(...f.elements.map(e => e.mean));
+  const node = new Map(f.elements.map(e => {
+    const a = -Math.PI / 2 + (PLACES.indexOf(e.element) * 2 * Math.PI) / 5;
+    return [e.element, { e, a, x: cx + R * Math.cos(a), y: cy + R * Math.sin(a), r: (narrow ? 0.75 : 1) * (15 + 21 * Math.sqrt(e.mean / biggest)) }];
+  }));
+  for (const n of node.values()) {
+    const m = node.get(n.e.generates);
+    const a0 = n.a + (n.r + 7) / R, a1 = m.a + (m.a < n.a ? 2 * Math.PI : 0) - (m.r + 9) / R;
+    svg("path", { d: `M${cx + R * Math.cos(a0)},${cy + R * Math.sin(a0)}A${R},${R} 0 0 1 ${cx + R * Math.cos(a1)},${cy + R * Math.sin(a1)}`, class: "cycle feeds", "marker-end": "url(#arrow-feeds)" }, s);
+  }
+  for (const n of node.values()) {
+    const m = node.get(n.e.overcomes);
+    const dx = m.x - n.x, dy = m.y - n.y, d = Math.hypot(dx, dy);
+    const strikes = n.e.element === f.excess;
+    const kind = strikes ? "strikes" : "checks";
+    svg("line", { x1: n.x + (dx / d) * (n.r + 5), y1: n.y + (dy / d) * (n.r + 5), x2: m.x - (dx / d) * (m.r + 8), y2: m.y - (dy / d) * (m.r + 8), class: `cycle ${kind}`, "marker-end": `url(#arrow-${kind})` }, s);
+    if (strikes) {
+      const side = dx > 0 ? 1 : -1;  // the normal that points up, out of the star
+      const lx = n.x + dx * 0.5 + (dy / d) * 13 * side, ly = n.y + dy * 0.5 - (dx / d) * 13 * side;
+      svg("text", { x: lx, y: ly + 4, "text-anchor": "middle", class: "verb" }, s).textContent = n.e.verb;
+    }
+  }
+  for (const n of node.values()) {
+    const g = svg("g", { class: `element${n.e.element === f.excess ? " excess" : ""}`, tabindex: 0 }, s);
+    svg("circle", { cx: n.x, cy: n.y, r: n.r, fill: ELEMENT_COLORS[n.e.element] }, g);
+    svg("text", { x: n.x, y: n.y + n.r * 0.36, "text-anchor": "middle", class: `hanzi${["Earth", "Wood"].includes(n.e.element) ? " dark" : ""}`, style: `font-size:${Math.round(n.r)}px` }, g).textContent = n.e.char;
+    const cos = Math.cos(n.a), sin = Math.sin(n.a), out = R + n.r + (narrow ? 8 : 14);
+    const lines = narrow
+      ? [[n.e.element, "element-name"], [n.e.region, "element-value"], [`${fmtInt.format(n.e.mean)} µg/m³`, "element-value"]]
+      : [[`${n.e.element} · ${n.e.region}`, "element-name"], [`${fmtInt.format(n.e.mean)} µg/m³ · ${Math.round(n.e.share * 100)}%`, "element-value"]];
+    const tall = (lines.length - 1) * 14;
+    const lx = cx + out * cos, ly = cy + out * sin + (sin < -0.5 ? -tall - 4 : sin > 0.5 ? 10 : 4 - tall / 2);
+    const anchor = cos > 0.3 ? "start" : cos < -0.3 ? "end" : "middle";
+    lines.forEach(([text, cls], i) => {
+      svg("text", { x: lx, y: ly + i * 14, "text-anchor": anchor, class: cls }, g).textContent = text;
+    });
+    hoverTip(g, `${n.e.element}, the ${n.e.region}`, [
+      { color: ELEMENT_COLORS[n.e.element], label: "PM2.5", value: `${fmtInt.format(n.e.mean)} µg/m³` },
+      { color: "transparent", label: `feeds ${n.e.generates}, ${n.e.verb} ${n.e.overcomes}`, value: "" },
+    ]);
+  }
+  legendRow(card, [
+    { key: "line", color: "var(--axis)", label: "feeds (around)" },
+    { key: "line", color: "var(--rival)", label: `${f.excess} ${node.get(f.excess)?.e.verb ?? "overcomes"} (across)` },
+  ]);
+  bodyText(card, f);
+}
+
+// Where the wind came from, on the eight trigrams: petal length is how often, darker is hazier.
+function windsFigure(card, f) {
+  card.append(headline(f));
+  const S = 250, c = S / 2, R = 70;
+  const s = svg("svg", { class: "rose", viewBox: `0 0 ${S} ${S}`, role: "img", "aria-label": f.body }, card);
+  const most = Math.max(...f.sectors.map(x => x.share), 1e-9);
+  const hazes = f.sectors.map(x => x.haze).filter(h => h !== null);
+  const [lo, hi] = hazes.length ? [Math.min(...hazes), Math.max(...hazes)] : [0, 1];
+  for (const k of [1 / 3, 2 / 3, 1]) svg("circle", { cx: c, cy: c, r: R * k, class: "rose-ring" }, s);
+  const calm = 15;  // petals grow out from the calm disc in the middle
+  f.sectors.forEach((sector, i) => {
+    const mid = ((i * 45 - 90) * Math.PI) / 180, half = (19 * Math.PI) / 180;
+    const r = calm + ((R - calm) * sector.share) / most;
+    if (sector.share > 0) {
+      const at = (radius, a) => `${(c + radius * Math.cos(a)).toFixed(1)},${(c + radius * Math.sin(a)).toFixed(1)}`;
+      const d = `M${at(calm, mid - half)}L${at(r, mid - half)}A${r},${r} 0 0 1 ${at(r, mid + half)}L${at(calm, mid + half)}A${calm},${calm} 0 0 0 ${at(calm, mid - half)}Z`;
+      const shade = sector.haze === null ? 0.3 : 0.35 + (0.6 * (sector.haze - lo)) / Math.max(1, hi - lo);
+      const petal = svg("path", { d, class: "petal", "fill-opacity": shade.toFixed(2), tabindex: 0 }, s);
+      const lines = [{ color: "var(--series-outdoor)", label: "of the time", value: `${Math.round(sector.share * 100)}%` }];
+      if (sector.speed !== null) lines.push({ color: "transparent", label: "speed", value: `${fmt1.format(sector.speed)} m/s` });
+      if (sector.haze !== null) lines.push({ color: "transparent", label: "haze it carried", value: `${fmtInt.format(sector.haze)} µg/m³` });
+      hoverTip(petal, `${sector.wind}, from the ${sector.direction} · ${sector.trigram[0]} ${sector.trigram[2]}`, lines);
+    }
+    const tx = c + (R + 20) * Math.cos(mid), ty = c + (R + 20) * Math.sin(mid);
+    const tri = linesSvg(sector.lines, 18, { class: "rose-trigram" });
+    tri.setAttribute("x", (tx - 9).toFixed(1));
+    tri.setAttribute("y", (ty - tri.getAttribute("height") / 2).toFixed(1));
+    s.append(tri);
+    svg("text", { x: c + (R + 40) * Math.cos(mid), y: c + (R + 40) * Math.sin(mid) + 4, "text-anchor": "middle", class: "rose-dir" }, s).textContent = sector.abbr;
+  });
+  const still = svg("g", { class: "rose-calm", tabindex: 0 }, s);
+  svg("circle", { cx: c, cy: c, r: calm - 2 }, still);
+  svg("text", { x: c, y: c + 3.5, "text-anchor": "middle" }, still).textContent = `${Math.round(f.calm * 100)}%`;
+  hoverTip(still, "Calm", [{ color: "transparent", label: `slower than ${fmt1.format(0.5)} m/s`, value: `${Math.round(f.calm * 100)}% of the time` }]);
+  bodyText(card, f);
+}
+
+// Outside and inside, hour by hour; the shaded gap between them is what the ward holds back.
+function wardChart(hours) {
+  const W = 250, H = 120, m = { left: 30, right: 6, top: 8, bottom: 18 };
+  const t0 = hours[0][0], t1 = hours.at(-1)[0];
+  const ticks = niceTicks(0, Math.max(...hours.map(h => Math.max(h[1], h[2]))), 3);
+  const x = t => m.left + (t1 > t0 ? (t - t0) / (t1 - t0) : 0.5) * (W - m.left - m.right);
+  const y = v => m.top + (1 - v / ticks.at(-1)) * (H - m.top - m.bottom);
+  const s = svg("svg", { class: "ward-chart", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `Outdoor and indoor PM2.5 over ${hours.length} hours` });
+  for (const v of ticks) {
+    svg("line", { x1: m.left, x2: W - m.right, y1: Math.round(y(v)) + 0.5, y2: Math.round(y(v)) + 0.5, class: v ? "grid-line" : "base-line" }, s);
+    svg("text", { x: m.left - 6, y: y(v) + 3.5, "text-anchor": "end", class: "tick" }, s).textContent = fmtInt.format(v);
+  }
+  // Runs of consecutive hours: NEA's gaps and the purifier's break the lines.
+  const runs = [];
+  for (const h of hours) {
+    if (!runs.length || h[0] - runs.at(-1).at(-1)[0] > 2 * 3600) runs.push([]);
+    runs.at(-1).push(h);
+  }
+  for (const run of runs) {
+    const outside = run.map(h => `${x(h[0]).toFixed(1)},${y(h[1]).toFixed(1)}`);
+    const inside = run.map(h => `${x(h[0]).toFixed(1)},${y(h[2]).toFixed(1)}`);
+    svg("polygon", { points: [...outside, ...inside.reverse()].join(" "), class: "held-back" }, s);
+    for (const [k, color] of [[1, "var(--series-outdoor)"], [2, "var(--series-blueair)"]]) {
+      const d = run.map((h, i) => `${i ? "L" : "M"}${x(h[0]).toFixed(1)},${y(h[k]).toFixed(1)}`).join("");
+      svg("path", { d: run.length > 1 ? d : `${d}h0.1`, fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, s);
+    }
+  }
+  for (const [t, anchor] of [[t0, "start"], [t1, "end"]]) {
+    svg("text", { x: x(t), y: H - 4, "text-anchor": anchor, class: "tick" }, s).textContent = fmtFull.format(new Date(t * 1000));
+  }
+  const step = hours.length > 1 ? (x(t1) - x(t0)) / (hours.length - 1) : 20;
+  for (const [t, outside, inside] of hours) {
+    const hit = svg("rect", { x: x(t) - step / 2, y: m.top, width: Math.max(step, 4), height: H - m.top - m.bottom, fill: "transparent" }, s);
+    hoverTip(hit, fmtFull.format(new Date(t * 1000)), [
+      { color: "var(--series-outdoor)", label: "outside", value: `${fmtInt.format(outside)} µg/m³` },
+      { color: "var(--series-blueair)", label: "inside", value: `${fmtInt.format(inside)} µg/m³` },
+      { color: "transparent", label: "held back", value: `${Math.round((1 - inside / outside) * 100)}%` },
+    ]);
+  }
+  return s;
+}
+
+function wardFigure(card, f) {
+  card.append(headline(f));
+  if (f.strength !== null) {
+    const bars = html("div", { class: "bars ward-bars" }, card);
+    const most = Math.max(f.outdoor, f.indoor);
+    for (const [label, value, color] of [["Outside", f.outdoor, "var(--series-outdoor)"], ["Inside", f.indoor, "var(--series-blueair)"]]) {
+      html("span", { class: "label" }, bars, label);
+      const track = html("span", { class: "track" }, bars);
+      html("span", { class: "bar", style: `width:${((value / most) * 100).toFixed(1)}%; background:${color}` }, track);
+      html("span", { class: "pct" }, bars, `${fmtInt.format(value)} µg/m³`);
+    }
+    if (f.hours.length > 1) {
+      card.append(wardChart(f.hours));
+      legendRow(card, [
+        { key: "line", color: "var(--series-outdoor)", label: "outside" },
+        { key: "line", color: "var(--series-blueair)", label: "inside" },
+        { key: "swatch", color: "color-mix(in srgb, var(--oracle-accent) 16%, transparent)", label: "held back" },
+      ]);
+    }
+  }
+  bodyText(card, f);
+}
+
+const FIGURES = {
+  aura: auraFigure, moon: moonFigure, numerology: numerologyFigure, chakra: chakraFigure, zodiac: zodiacFigure,
+  signals: signalsFigure, schumann: schumannFigure, golden: goldenFigure, mercury: mercuryFigure,
+  iching: ichingFigure, society: societyFigure, choir: choirFigure, souls: soulsFigure, births: birthsFigure,
+  clock: clockFigure, elements: elementsFigure, winds: windsFigure, ward: wardFigure,
+};
+
+function oracleCard(grid, f, span) {
+  const card = html("article", { class: `oracle-card${span === 1 ? "" : span === "wide" ? " wide" : " span-2"}`, id: `omen-${f.id}` }, grid);
+  const header = html("header", { class: "card-top" }, card);
+  html("h3", {}, header, f.title);
+  (FIGURES[f.id] || plainFigure)(card, f, header);
+  html("p", { class: "certainty" }, card, f.certainty);
+}
+
+// The headlines worth a glance, linked to their cards, under the page header.
+function renderOmens(byId) {
+  const bar = document.getElementById("omens");
+  bar.replaceChildren();
+  const omens = [
+    ["iching", f => ["", f.name]],
+    ["clock", f => [f.hours.find(h => h.ruler === f.ruler).glyph, f.headline]],
+    ["mercury", f => ["☿", f.headline]],
+    ["moon", f => ["☽", f.headline]],
+    ["souls", f => (f.souls === null ? null : ["", f.headline])],
+    ["choir", f => ["♪", f.key]],
+    ["elements", f => (f.colour ? [f.elements.find(e => e.element === f.excess).char, `wear ${f.colour}`] : null)],
+  ];
+  for (const [id, omen] of omens) {
+    const f = byId.get(id);
+    const parts = f && omen(f);
+    if (!parts) continue;
+    const a = html("a", { href: `#omen-${id}`, title: f.title }, bar);
+    const glyph = html("span", { class: "glyph", "aria-hidden": "true" }, a, parts[0]);
+    if (id === "souls") glyph.append(ghosts(1, "omen-soul").firstChild);
+    if (id === "iching") glyph.append(linesSvg(f.lines.map(l => l.yang), 12));
+    a.append(parts[1]);
+  }
+  bar.hidden = !bar.childElementCount;
+}
+
+function renderOracle() {
+  const root = document.getElementById("oracle");
+  root.replaceChildren();
+  if (!state.oracle) return;
+  document.getElementById("disclaimer").textContent = state.oracle.disclaimer;
+  const byId = new Map(state.oracle.findings.map(f => [f.id, f]));
+  const sections = ORACLE_SECTIONS.map(s => ({ ...s, cards: s.cards.filter(([id]) => byId.has(id)) }));
+  const placed = new Set(sections.flatMap(s => s.cards.map(([id]) => id)));
+  const rest = [...byId.keys()].filter(id => !placed.has(id));
+  if (rest.length) sections.push({ title: "Further omens", glyph: "✧", cards: rest.map(id => [id]) });
+  for (const s of sections.filter(s => s.cards.length)) {
+    const section = html("section", { class: "oracle-section" }, root);
+    const title = html("h3", { class: "section-title" }, section);
+    html("span", { class: "glyph", "aria-hidden": "true" }, title, s.glyph);
+    title.append(s.title);
+    const grid = html("div", { class: `oracle-grid${s.pair ? " pair" : ""}` }, section);
+    for (const [id, span = 1] of s.cards) oracleCard(grid, byId.get(id), span);
+  }
+  renderOmens(byId);
+}
+
 // ---------- data flow ----------
+
+const ORACLE_REFRESH_MS = 60000;  // the Oracle changes its mind slowly, and redrawing it would drop a hover
+let oracleFetched = 0;
 
 async function refresh({ rangeChanged = false } = {}) {
   const charts = document.querySelectorAll(".chart");
   if (rangeChanged) charts.forEach(c => c.classList.add("loading"));
   const r = encodeURIComponent(state.range);
+  const divine = rangeChanged || Date.now() - oracleFetched >= ORACLE_REFRESH_MS;
   try {
     const [latest, series, oracle] = await Promise.all([
       getJSON("api/latest"),
       getJSON(`api/series?range=${r}`),
-      getJSON(`api/oracle?range=${r}`),
+      divine ? getJSON(`api/oracle?range=${r}`) : null,
     ]);
-    Object.assign(state, { latest, series, oracle });
+    Object.assign(state, { latest, series });
     renderTiles();
     renderCharts();
-    renderOracle();
+    if (oracle) {
+      state.oracle = oracle;
+      oracleFetched = Date.now();
+      renderOracle();
+    }
   } catch (e) {
     const status = document.getElementById("recorder-status");
     status.classList.remove("live");

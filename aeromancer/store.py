@@ -99,6 +99,10 @@ class Store:
         """Time of the newest reading of any quantity matching the GLOB ``pattern``."""
         return self.db.execute("SELECT MAX(ts) FROM readings WHERE quantity GLOB ?", (pattern,)).fetchone()[0]
 
+    def first_ts(self, pattern: str) -> float | None:
+        """Time of the oldest reading of any quantity matching the GLOB ``pattern``."""
+        return self.db.execute("SELECT MIN(ts) FROM readings WHERE quantity GLOB ?", (pattern,)).fetchone()[0]
+
     def count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM readings").fetchone()[0]
 

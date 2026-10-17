@@ -23,6 +23,7 @@
         <button data-range="all">All</button>
       </nav>
     </header>
+    <nav class="omens" id="omens" aria-label="Omens" hidden></nav>
 
     <section class="tiles" aria-label="Current readings">
       <article class="tile hero">
@@ -87,11 +88,11 @@
         <h2 id="oracle-title">The Oracle</h2>
         <p class="disclaimer" id="disclaimer"></p>
       </header>
-      <div class="oracle-grid" id="oracle"></div>
+      <div id="oracle"></div>
     </section>
 
     <footer>
-      <p>Readings from a ZyAura “USB-zyTemp” sensor (04d9:a052) and, when configured, a Blueair purifier via Blueair’s cloud. Planet positions from JPL Keplerian elements; Moon from the mean synodic month.</p>
+      <p>Readings from a ZyAura “USB-zyTemp” sensor (04d9:a052) and, when configured, a Blueair purifier via Blueair’s cloud and NEA’s outdoor PM2.5 and weather stations via data.gov.sg. Planet positions, solar time and Mercury’s shadow from JPL Keplerian elements; Moon from the mean synodic month. Hexagram names after Richard Wilhelm; key profiles from Krumhansl and Kessler (1982).</p>
     </footer>
   </main>
   <div class="tooltip" id="tooltip" role="status" hidden></div>

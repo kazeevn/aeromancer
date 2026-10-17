@@ -144,9 +144,12 @@ def cmd_unplace(args):
 
 
 def cmd_oracle(args):
-    result = server.run_oracle(Store(args.db), args.range)
+    result = server.run_oracle(Store(args.db), args.range, home_region(args), home_position(args))
     for f in result["findings"]:
         print(f"\n\033[1m{f['title']}: {f['headline']}\033[0m")
+        for line in reversed(f["lines"] if f["id"] == "iching" else []):  # drawn from the top, cast from the bottom
+            mark = ("\u25cb" if line["yang"] else "\u00d7") if line["changing"] else " "
+            print(f"  {'\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501' if line['yang'] else '\u2501\u2501\u2501\u2501 \u2501\u2501\u2501\u2501'} {mark}  {line['caster']}: {line['why']}")
         print(textwrap.fill(f["body"], 78, initial_indent="  ", subsequent_indent="  "))
         for s in f.get("signals", []):
             print(f"  \033[1m{s['op']}\033[0m {s['persona']}, {s['min']:g}\u2013{s['max']:g}")
@@ -265,6 +268,7 @@ def main(argv=None):
 
     p = sub.add_parser("oracle", help="print the pseudo-scientific analysis")
     p.add_argument("--range", default="24h", help="e.g. 90m, 24h, 7d, all")
+    outdoor(p)
     p.set_defaults(func=cmd_oracle)
 
     p = sub.add_parser("simulate", help="fill a database with synthetic data")

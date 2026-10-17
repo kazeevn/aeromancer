@@ -1,13 +1,24 @@
+import json
 import math
 import tempfile
+import time
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
-from aeromancer import oracle
+from aeromancer import astro, lore, nea, oracle, server
 from aeromancer.device import Reading
-from aeromancer.store import Store, device_of
+from aeromancer.store import Placement, Store, device_of
 
 START = 1_790_000_000.0
+HOUR = 3600
+BASE_IDS = {"aura", "moon", "mercury", "chakra", "schumann", "golden", "numerology", "zodiac", "signals", "horoscope"}
+HOUSEHOLD_IDS = {"iching", "society", "choir", "souls", "births", "clock", "elements", "winds", "ward"}
+PLACED = [Placement(1, 0, "zytemp", "living room", "table"), Placement(2, 0, "blueair", "bedroom", "")]
+
+
+def ts(text):
+    return datetime.fromisoformat(text).replace(tzinfo=timezone.utc).timestamp()
 
 
 def breathing_room(hours=48, step=60):
@@ -16,14 +27,50 @@ def breathing_room(hours=48, step=60):
     return co2, temp
 
 
+def daily(times, peak_utc_hour, mean, amplitude):
+    return [(t, mean + amplitude * math.cos(2 * math.pi * (t - peak_utc_hour * HOUR) / 86400)) for t in times]
+
+
+def household(hours=48):
+    """Everything besides the meter, as ``analyze`` takes it: ``(others, regions)``."""
+    times = [START + i * 300 for i in range(hours * 12)]
+    hourly = times[6::12]  # NEA's, stamped mid-hour
+    others = {
+        "blueair_pm25": daily(times, 8, 40, 20),
+        "blueair_voc": [(t, 300 + 100 * math.sin(t / 5000)) for t in times],
+        "blueair_temperature": daily(times, 5, 29, 1),
+        "blueair_humidity": daily(times, 17, 60, 5),
+        "outdoor_pm25": daily(hourly, 7, 120, 40),
+        "outdoor_temperature": daily(times, 6.5, 30, 2),
+        "outdoor_humidity": daily(times, 18.5, 80, 8),
+        "outdoor_wind_speed": [(t, 1.5 + math.sin(t / 7000)) for t in times],
+        "outdoor_wind_direction": [(t, 225 + 20 * math.sin(t / 3000)) for t in times],
+        "outdoor_rain": [(t, 1.2 if i == 100 else 0.0) for i, t in enumerate(times)],
+    }
+    regions = {r: daily(hourly, 7, 80 + 20 * k, 30) for k, r in enumerate(lore.ELEMENTS)}
+    return others, regions
+
+
 class OracleTest(unittest.TestCase):
     def test_all_findings(self):
         co2, temp = breathing_room()
         result = oracle.analyze(co2, temp, co2[0][0], co2[-1][0])
         ids = {f["id"] for f in result["findings"]}
-        self.assertEqual(ids, {"aura", "moon", "mercury", "chakra", "schumann", "golden", "numerology", "zodiac", "signals", "horoscope"})
+        self.assertEqual(ids, BASE_IDS | {"iching", "society", "choir", "souls", "clock"})
         for f in result["findings"]:
             self.assertTrue(f["headline"] and f["body"] and f["certainty"])
+
+    def test_the_whole_household(self):
+        co2, temp = breathing_room()
+        others, regions = household()
+        born = {"zytemp": START - 86400, "blueair": START - 2 * 86400, "island": START - 7 * 86400}
+        result = oracle.analyze(co2, temp, co2[0][0], co2[-1][0], others=others, regions=regions, placements=PLACED, born=born, home=(1.35, 103.85))
+        self.assertEqual({f["id"] for f in result["findings"]}, BASE_IDS | HOUSEHOLD_IDS)
+        for f in result["findings"]:
+            self.assertTrue(f["headline"] and f["body"] and f["certainty"], f["id"])
+        json.dumps(result, allow_nan=False)  # what the dashboard is sent
+        horoscope = next(f for f in result["findings"] if f["id"] == "horoscope")
+        self.assertIn("I Ching", horoscope["body"])
 
     def test_schumann_finds_daily_rhythm(self):
         co2, temp = breathing_room()
@@ -37,8 +84,15 @@ class OracleTest(unittest.TestCase):
     def test_tiny_and_flat_inputs(self):
         for co2 in ([(START, 600.0)], [(START + i, 600.0) for i in range(30)]):
             result = oracle.analyze(co2, [], co2[0][0], co2[-1][0])
-            self.assertEqual(len(result["findings"]), 10)
+            self.assertLessEqual(BASE_IDS, {f["id"] for f in result["findings"]})
+            for f in result["findings"]:
+                self.assertTrue(f["headline"] and f["body"], f["id"])
         self.assertEqual(oracle.analyze([], [], START, START + 1)["findings"], [])
+        others, regions = household(hours=1)
+        result = oracle.analyze([], [], START, START + HOUR, others=others, regions=regions)  # no meter, a short window
+        for f in result["findings"]:
+            self.assertTrue(f["headline"] and f["body"], f["id"])
+        json.dumps(result, allow_nan=False)
 
     def test_voices_identify_signals(self):
         co2, _ = breathing_room()
@@ -62,6 +116,188 @@ class OracleTest(unittest.TestCase):
     def test_numerology(self):
         self.assertEqual(oracle._digital_root(669), 3)
         self.assertEqual(oracle._digital_root(902), 11)
+
+
+
+class HouseholdTest(unittest.TestCase):
+    def test_iching_lines_follow_their_casters(self):
+        end = START + 10 * HOUR + 600
+        rising = lambda base: [(end - 3 * HOUR + i * 60, base + i) for i in range(170)]
+        falling = lambda base: [(end - 3 * HOUR + i * 60, base - i * 0.01) for i in range(170)]
+        series = {"co2": rising(800), "temperature": rising(20), "blueair_pm25": falling(50), "outdoor_pm25": rising(100), "outdoor_wind_speed": falling(5)}
+        f = oracle.iching(series, end)
+        waxing = astro.moon_age(end // HOUR * HOUR) < astro.SYNODIC_MONTH / 2
+        expected = [True, True, False, True, False, waxing]
+        self.assertEqual([line["yang"] for line in f["lines"]], expected)
+        self.assertEqual(f["number"], lore.hexagram(expected))
+        self.assertFalse(any(line["changing"] for line in f["lines"][:5]))  # steady changes are young lines
+        self.assertEqual(f["trigrams"][0]["lines"], expected[:3])
+
+    def test_iching_changing_and_silent_lines(self):
+        end = START + 10 * HOUR
+        jump = [(end - 6 * HOUR + i * 60, 800 + i + (9 * (i - 300) if i >= 300 else 0)) for i in range(360)]  # ten times faster in the last hour
+        f = oracle.iching({"co2": jump}, end)
+        self.assertEqual(f["lines"][0]["value"], 9)
+        self.assertEqual([line["coins"] for line in f["lines"]], [False, True, True, True, True, False])
+        if f["becomes"]:
+            self.assertNotEqual(f["becomes"]["number"], f["number"])
+        self.assertIsNone(oracle.iching({}, end))  # all coins and no data is not a reading
+
+    def test_society_finds_soulmates_and_nemeses(self):
+        times = [START + i * 300 for i in range(2 * 288)]
+        guests = {
+            "co2": [(t, math.sin(t / 5000)) for t in times],
+            "blueair_voc": [(t, 2 * math.sin(t / 5000) + 0.01 * math.cos(t)) for t in times],
+            "outdoor_humidity": [(t, -math.sin(t / 5000)) for t in times],
+        }
+        f = oracle.society(guests, times[0], times[-1], PLACED)
+        self.assertEqual(set(f["soulmates"]), {"co2", "blueair_voc"})
+        self.assertEqual(set(f["nemeses"]), {"co2", "outdoor_humidity"})
+        members = [m["id"] for m in f["members"]]
+        self.assertIn("sun", members)
+        self.assertNotIn("moon", members)  # less than a week: it would only stand in for time
+        self.assertIn("live apart, in the living room and the bedroom", f["body"])
+        self.assertNotIn("sun", [m["id"] for m in oracle.society(guests, times[-1] - 6 * HOUR, times[-1])["members"]])
+
+    def test_choir_sings_the_spectrum(self):
+        period = 2 * HOUR
+        f = oracle.choir({"co2": [(START + i * 60, math.sin(2 * math.pi * i * 60 / period)) for i in range(12 * 60)]})
+        voice = f["voices"][0]
+        self.assertAlmostEqual(voice["period_s"] / period, 1, delta=0.1)
+        self.assertAlmostEqual(voice["hz"] / 2 ** f["octaves"] * period, 1, delta=0.1)
+        self.assertIsNone(f["consonance"])
+        self.assertEqual(f["headline"], f["key"])
+        self.assertAlmostEqual(f["earth"]["cents"], 25, delta=1)  # 7.83 Hz raised 6 octaves is a sharp B
+        self.assertEqual(f["earth"]["note"], "B")
+
+    def test_key_finding(self):
+        self.assertEqual(oracle._key([60, 64, 67]), (0, "major"))  # C E G
+        self.assertEqual(oracle._key([57, 60, 64, 69]), (9, "minor"))  # A C E A
+
+    def test_souls_from_a_known_crowd(self):
+        souls, air_changes, volume = 1.5, 1.0, oracle.ROOM_VOLUMES["living room"]
+        c, co2 = oracle.OUTDOOR_CO2, []
+        for i in range(6 * 60):  # six hours from fresh air, a reading a minute
+            co2.append((START + i * 60, c))
+            c += (souls * oracle.EXHALED * 1000 / volume - air_changes * (c - oracle.OUTDOOR_CO2)) / 60
+        f = oracle.souls(co2, PLACED, co2[-1][0])
+        self.assertTrue(f["fitted"])
+        self.assertAlmostEqual(f["air_changes"], air_changes, delta=0.05)
+        self.assertAlmostEqual(f["souls"], souls, delta=0.1)
+        self.assertEqual((f["room"], f["volume"]), ("living room", 60))
+        self.assertEqual(oracle.souls(co2[:3])["souls"], None)
+
+    def test_births_and_the_fire_horse(self):
+        born = {"zytemp": ts("2026-10-17T10:42"), "blueair": ts("2026-02-16T12:00")}  # 20:00 in China, the eve of the new year
+        f = oracle.births(born, ts("2026-10-17T20:00"))
+        meter, purifier = f["members"]
+        self.assertEqual((meter["element"], meter["animal"]), ("Fire", "Horse"))
+        self.assertEqual((purifier["element"], purifier["animal"]), ("Wood", "Snake"))
+        self.assertEqual(f["headline"], "2 members")
+        self.assertTrue(all(r["critical"] for r in meter["rhythms"]))  # born this morning: every cycle at zero
+        family = oracle.births({"zytemp": ts("2026-10-17T10:42"), "blueair": ts("2026-10-16T12:00")}, ts("2026-10-18T00:00"))
+        self.assertEqual(family["headline"], "A family of Fire Horses")
+        self.assertIn("1966", family["body"])
+        self.assertIsNone(oracle.births({}, START))
+
+    def test_clock_places_rhythms_and_aspects(self):
+        times = [START + i * 600 for i in range(2 * 144)]
+        guests = {"outdoor_temperature": daily(times, 6, 30, 2), "outdoor_humidity": daily(times, 14, 80, 8)}  # 8 h, 120°, apart
+        f = oracle.clock(guests, times[0], times[-1], home=(0.0, 0.0))
+        planets = {p["id"]: p for p in f["planets"]}
+        noon_utc = times[-1] // 86400 * 86400
+        self.assertAlmostEqual(planets["outdoor_temperature"]["hour"], astro.solar_hours(noon_utc + 6 * HOUR, 0.0), delta=0.05)
+        self.assertEqual(planets["outdoor_temperature"]["house"], lore.house(planets["outdoor_temperature"]["hour"]))
+        self.assertEqual((planets["sun"]["hour"], planets["sun"]["house"]), (12.0, 10))
+        trines = [{a["a"], a["b"]} for a in f["aspects"] if a["kind"] == "trine"]
+        self.assertIn({"outdoor_temperature", "outdoor_humidity"}, trines)
+        self.assertEqual(len(f["hours"]), 24)
+        self.assertIn(f["ruler"], astro.CHALDEAN)
+        recent = {"co2": [(START, 1.0), (START + HOUR, 2.0)]}
+        self.assertIn("window this short", oracle.clock(recent, START, START + HOUR)["body"])
+        self.assertIn("not yet lived a full day", oracle.clock(recent, START + HOUR - 86400, START + HOUR)["body"])
+
+    def test_elements_and_the_flow_of_qi(self):
+        times = [START + 1800 + i * HOUR for i in range(48)]
+        wave = [math.sin(i / 3) for i in range(60)]
+        levels = {"west": (150, 2), "east": (100, 1), "north": (60, 0), "south": (90, 0), "central": (110, 0)}  # (mean, hours ahead)
+        regions = {r: [(t, mean + 20 * wave[i + ahead]) for i, t in enumerate(times)] for r, (mean, ahead) in levels.items()}
+        f = oracle.elements(regions)
+        self.assertEqual((f["excess"], f["colour"], f["weakest"]), ("Metal", "red", "north"))  # Fire melts Metal
+        self.assertEqual(f["flow"]["first"], "west")
+        self.assertEqual([e["element"] for e in f["elements"]], list(lore.GENERATES))
+        self.assertEqual(oracle.elements({"west": regions["west"]})["headline"], "Incomplete")
+        self.assertIsNone(oracle.elements({}))
+
+    def test_winds(self):
+        times = [START + i * 300 for i in range(100)]
+        direction = [(t, 225.0 if i % 4 else 90.0) for i, t in enumerate(times)]
+        speed = [(t, 0.2 if i % 10 == 0 else 2.0) for i, t in enumerate(times)]
+        rain = [(t, 0.5 if i == 50 else 0.0) for i, t in enumerate(times)]
+        f = oracle.winds(direction, speed, rain)
+        prevailing = f["sectors"][f["prevailing"]]
+        self.assertEqual((prevailing["abbr"], prevailing["wind"], prevailing["trigram"][0]), ("SW", "Lips", "Kun"))
+        self.assertAlmostEqual(f["calm"], 0.1)
+        self.assertAlmostEqual(f["rain_mm"], 0.5)
+        self.assertIsNone(oracle.winds([]))
+
+    def test_ward(self):
+        outdoor = [(START + 1800 + h * HOUR, 100 + 10 * math.sin(h)) for h in range(24)]
+        indoor = [(START + m * 300, 0.3 * (100 + 10 * math.sin((m * 300 - 1800) / HOUR))) for m in range(24 * 12)]
+        f = oracle.ward(indoor, outdoor, PLACED)
+        self.assertAlmostEqual(f["strength"], 0.7, delta=0.03)
+        self.assertEqual((f["lag_h"], f["breaches"], f["band"]), (0, 0, "II"))
+        self.assertIn("in the bedroom", f["body"])
+        self.assertIsNone(oracle.ward([], outdoor))
+
+    def test_horoscope_minds_the_haze(self):
+        co2, _ = breathing_room()
+        findings = [{"id": "moon", "headline": "Full Moon"}, {"id": "mercury", "retrograde": False, "shadow": None}]
+        bodies = lambda haze: [oracle.horoscope(co2, START + day * 86400, findings, haze)["body"] for day in range(40)]
+        self.assertTrue(any("air out the bedroom" in b for b in bodies(None)))
+        self.assertFalse(any("air out" in b for b in bodies(120.0)))
+
+    def test_mercury_in_shadow(self):
+        end = ts("2026-10-17T12:00")
+        f = oracle.mercury([(end - 60, 1100.0), (end, 1100.0)], end - HOUR, end)
+        self.assertEqual((f["headline"], f["shadow"]["kind"]), ("Direct, in shadow", "pre"))
+        self.assertIn("half the blame", f["body"])
+        self.assertLess(f["cycle"]["shadow_start"], end, f["cycle"]["retrograde"])
+
+
+class RunOracleTest(unittest.TestCase):
+    def test_from_the_database(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = Store(Path(d) / "x.sqlite3")
+            t0 = time.time() - 30 * HOUR
+            readings = []
+            for i in range(30 * 12):
+                t = t0 + i * 300
+                readings += [
+                    Reading(t, "co2", 800 + 200 * math.sin(i / 20)),
+                    Reading(t, "temperature", 25 + math.sin(i / 30)),
+                    Reading(t, "blueair_pm25", 30 + 10 * math.sin(i / 25)),
+                    Reading(t, "blueair_temperature", 29 + math.cos(i / 40)),
+                    Reading(t, "nea_temperature_S1", 30 + 2 * math.sin(i / 50)),
+                    Reading(t, "nea_humidity_S1", 80 - 5 * math.sin(i / 50)),
+                    Reading(t, "nea_wind_speed_S1", 2 + math.sin(i / 7)),
+                    Reading(t, "nea_wind_direction_S1", 200 + 30 * math.sin(i / 9)),
+                    Reading(t, "nea_rain_S2", 0.4 if i == 300 else 0.0),
+                ]
+                if i % 12 == 6:
+                    readings += [Reading(t, nea.PREFIX + r, 100 + 10 * k + 20 * math.sin(i / 40)) for k, r in enumerate(nea.REGIONS)]
+            store.add(readings)
+            store.add_stations([("S1", "Station 1", 1.351, 103.85), ("S2", "Station 2", 1.36, 103.85)])
+            store.place(0, "zytemp", "living room", "table")
+            store.place(0, "blueair", "bedroom")
+            self.assertEqual(store.first_ts("blueair_*"), t0)
+            result = server.run_oracle(store, "24h", "central", (1.35, 103.85))
+            by_id = {f["id"]: f for f in result["findings"]}
+            self.assertLessEqual(HOUSEHOLD_IDS | {"horoscope"}, set(by_id))
+            self.assertAlmostEqual(by_id["winds"]["rain_mm"], 0.4)  # from the nearest station that measures rain
+            self.assertEqual(by_id["births"]["members"][0]["born"], t0)
+            json.dumps(result, allow_nan=False)
+            store.close()
 
 
 class StoreTest(unittest.TestCase):
