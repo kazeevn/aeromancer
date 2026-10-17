@@ -122,8 +122,9 @@ function timeTicks(start, end, count) {
 
 /**
  * Panels stacked on one time axis, one unit per panel.
- * panel: { title, height, series, keys, tick, format, minPad, floor, refs }
- * series: { label, name, color, rows: [ts, mean, min, max][], band, interval }
+ * panel: { title, height, series, keys, tick, format, minPad, floor, refs, ticks }
+ * series: { label, name, color, rows: [ts, mean, min, max][], band, interval, area }
+ *   area: filled down to the axis, behind the lines that follow it
  * opts: { retrograde, lunations, describe }
  */
 function stackedChart(container, panels, opts) {
@@ -187,7 +188,7 @@ function stackedChart(container, panels, opts) {
     let lo = Math.min(...rows.map(r => r[2]));
     let hi = Math.max(...rows.map(r => r[3]));
     const pad = Math.max((hi - lo) * 0.08, p.minPad);
-    const yt = niceTicks(Math.max(p.floor ?? -Infinity, lo - pad), hi + pad, Math.max(2, Math.round(p.height / 48)));
+    const yt = niceTicks(Math.max(p.floor ?? -Infinity, lo - pad), hi + pad, p.ticks ?? Math.max(2, Math.round(p.height / 48)));
     lo = yt[0]; hi = yt.at(-1);
     const y = p.y = v => p.top + (1 - (v - lo) / (hi - lo)) * p.height;
 
@@ -220,9 +221,16 @@ function stackedChart(container, panels, opts) {
           svg("polygon", { points: band.join(" "), fill: s.color, "fill-opacity": 0.12 }, marks);
         }
       }
+      if (s.area) {
+        const base = p.top + p.height;
+        for (const g of segments) {
+          const pts = g.map(r => `${x(r[0]).toFixed(1)},${y(r[1]).toFixed(1)}`);
+          svg("polygon", { points: [`${x(g[0][0]).toFixed(1)},${base}`, ...pts, `${x(g.at(-1)[0]).toFixed(1)},${base}`].join(" "), fill: s.color, "fill-opacity": 0.14 }, marks);
+        }
+      }
       for (const g of segments) {
         const d = g.map((r, i) => `${i ? "L" : "M"}${x(r[0]).toFixed(1)},${y(r[1]).toFixed(1)}`).join("");
-        svg("path", { d: g.length > 1 ? d : `${d}h0.1`, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, marks);
+        svg("path", { d: g.length > 1 ? d : `${d}h0.1`, fill: "none", stroke: s.color, "stroke-width": s.area ? 1 : 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, marks);
       }
       const last = s.rows.at(-1);
       svg("circle", { cx: x(last[0]), cy: y(last[1]), r: 4, fill: s.color, stroke: "var(--surface-1)", "stroke-width": 2 }, labels);
@@ -330,6 +338,7 @@ function hideTooltip() { tooltip.hidden = true; }
 // ---------- rendering ----------
 
 const BLUEAIR_INTERVAL = 300;  // seconds between the purifier's uploads
+const OUTDOOR_INTERVAL = 3600;  // NEA publishes hourly means, stamped mid-hour
 
 function renderCharts() {
   if (!state.series) return;
@@ -352,12 +361,14 @@ function renderCharts() {
       series: [meter("CO₂ zyTemp", s.co2), blueair("CO₂ Blueair", s.blueair_co2)],
     },
     {
-      title: "Particles, µg/m³", height: 140, minPad: 2, floor: 0, keys: true, ...int, format: v => `${fmtInt.format(v)} µg/m³`,
+      title: "Particles, µg/m³", height: 180, ticks: 5, minPad: 2, floor: 0, keys: true, ...int, format: v => `${fmtInt.format(v)} µg/m³`,
       series: [
+        // Outdoor first: a shaded backdrop that the indoor lines sit on.
+        { label: "PM2.5 outdoor", name: "PM2.5 outdoor", color: color("outdoor"), rows: s.outdoor_pm25 || [], interval: OUTDOOR_INTERVAL, area: true },
         blueair("PM1", s.blueair_pm1, { name: "PM1", color: color("pm1") }),
         blueair("PM2.5", s.blueair_pm25, { name: "PM2.5" }),
         blueair("PM10", s.blueair_pm10, { name: "PM10", color: color("pm10") }),
-      ],
+      ].filter(x => x.rows.length || !x.area),
     },
     {
       title: "Volatile organic compounds, ppb", height: 100, minPad: 5, floor: 0, ...int, format: v => `${fmtInt.format(v)} ppb`,
@@ -368,6 +379,7 @@ function renderCharts() {
       series: [blueair("Pollution index", s.blueair_all_pollution)],
     },
   ];
+  document.getElementById("outdoor-key").hidden = !s.outdoor_pm25?.length;
   stackedChart(document.getElementById("air-chart"), air, { retrograde, lunations, describe: describe("Air", air) });
 
   const climate = [

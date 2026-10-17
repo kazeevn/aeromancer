@@ -16,7 +16,7 @@ from .device import Reading
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS readings (
     ts       REAL NOT NULL,  -- unix time, seconds
-    quantity TEXT NOT NULL,  -- co2 | temperature | humidity | op_XX (undocumented codes) | blueair_<sensor>
+    quantity TEXT NOT NULL,  -- co2 | temperature | humidity | op_XX (undocumented codes) | blueair_<sensor> | nea_pm25_<region>
     value    REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS readings_quantity_ts ON readings (quantity, ts);

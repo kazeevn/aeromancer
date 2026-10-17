@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import astro, oracle
+from . import astro, nea, oracle
 from .recorder import RecorderStatus
 from .store import Store
 
@@ -66,10 +66,11 @@ def run_oracle(store: Store, range_text: str) -> dict:
 class DashboardServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, db_path, recorder: RecorderStatus | None):
+    def __init__(self, address, db_path, recorder: RecorderStatus | None, outdoor_region: str | None = None):
         super().__init__(address, Handler)
         self.db_path = db_path
         self.recorder = recorder
+        self.outdoor_region = outdoor_region
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -120,11 +121,15 @@ class Handler(BaseHTTPRequestHandler):
     def series(self, store: Store, query):
         start, end = _window(store, query.get("range", "24h"))
         bucket = max(1.0, (end - start) / int(query.get("points", CHART_POINTS)))
+        series = {q: store.series(q, start, end, bucket) for q in CHART_QUANTITIES}
+        # Under a generic name, so the public dashboard does not say where home is.
+        region = self.server.outdoor_region
+        series["outdoor_pm25"] = store.series(nea.PREFIX + region, start, end, bucket) if region else []
         return {
             "start": start,
             "end": end,
             "bucket": bucket,
-            "series": {q: store.series(q, start, end, bucket) for q in CHART_QUANTITIES},
+            "series": series,
             "retrograde": astro.mercury_retrograde_intervals(start, end),
             "lunations": astro.lunations(start, end),
         }
@@ -133,7 +138,7 @@ class Handler(BaseHTTPRequestHandler):
         return run_oracle(store, query.get("range", "24h"))
 
 
-def serve(db_path, host: str, port: int, recorder: RecorderStatus | None = None) -> None:
-    server = DashboardServer((host, port), db_path, recorder)
+def serve(db_path, host: str, port: int, recorder: RecorderStatus | None = None, outdoor_region: str | None = None) -> None:
+    server = DashboardServer((host, port), db_path, recorder, outdoor_region)
     log.info("dashboard at http://%s:%d/", host, port)
     server.serve_forever()

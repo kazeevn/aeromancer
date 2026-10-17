@@ -80,14 +80,36 @@ the model has) and `blueair_fan_speed`.
 For the systemd unit, point its `ExecStart` at
 `%h/projects/co2-monitor/.venv/bin/python3` so it finds the package.
 
+## Outdoor PM2.5 (Singapore)
+
+Optionally, the recorder also fetches the outdoor PM2.5 that NEA measures,
+from [data.gov.sg](https://guide.data.gov.sg/developer-guide/real-time-apis).
+This is free, needs no key, and uses the standard library only. Name your
+region (`north`, `south`, `east`, `west` or `central`; see NEA's list of
+towns per region) in `~/.config/aeromancer/nea.toml`, or pass another file
+with `--nea-config`:
+
+```toml
+region = "central"
+```
+
+The region stays in that file, not in the command line or on the dashboard,
+which only says "outdoor". With the file present, `run` and `record` poll
+every 10 minutes for the hourly readings, and fill in up to a week after a
+gap; `python3 -m aeromancer nea` polls only NEA. All five regions are stored,
+as `nea_pm25_<region>`, each at the middle of the hour it averages; the
+dashboard charts yours. See
+[docs/outdoor-pm25.md](docs/outdoor-pm25.md) for why this source.
+
 ## The dashboard
 
 Live CO₂ with a status (fresh < 800 ≤ stuffy < 1200 ≤ ventilate < 2000 ≤
 leave the room), temperature, humidity on meters that have it, and two charts
 of stacked panels on one time axis, one unit per panel: Air (CO₂ from the
-meter and the purifier, particles, VOC, the purifier's pollution index) and
+meter and the purifier, particles with NEA's outdoor PM2.5 shaded behind
+them, VOC, the purifier's pollution index) and
 Climate (both temperatures, humidity). The meter is drawn in blue with
-per-bucket min–max bands, the purifier in orange. Mercury retrograde periods
+per-bucket min–max bands, the purifier in orange, NEA in green. Mercury retrograde periods
 and full/new moons are marked on the time axis. Hover or use the arrow keys
 on a chart to read every value at that moment.
 

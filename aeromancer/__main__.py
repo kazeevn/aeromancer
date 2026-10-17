@@ -1,4 +1,4 @@
-"""Command line: ``python -m aeromancer {run,record,blueair,serve,oracle,simulate}``."""
+"""Command line: ``python -m aeromancer {run,record,blueair,nea,serve,oracle,simulate}``."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from . import blueair, server
+from . import blueair, nea, server
 from .device import Reading
 from .recorder import record, start_in_background
 from .store import Store, default_path
@@ -31,14 +31,33 @@ def start_blueair(args) -> None:
     blueair.start_in_background(args.db, config)
 
 
+def home_region(args) -> str | None:
+    """The NEA region from the config file, or None (logged) when there is none or it is bad."""
+    try:
+        return nea.load_region(args.nea_config)
+    except (ValueError, tomllib.TOMLDecodeError) as e:
+        logging.error("%s; no outdoor PM2.5", e)
+        return None
+
+
+def start_nea(args) -> str | None:
+    """Poll NEA's outdoor PM2.5 if a home region is configured; return the region."""
+    region = home_region(args)
+    if region is not None:
+        nea.start_in_background(args.db)
+    return region
+
+
 def cmd_run(args):
     start_blueair(args)
+    region = start_nea(args)
     status, _ = start_in_background(args.db, device=args.device, min_interval=args.min_interval)
-    server.serve(args.db, args.host, args.port, recorder=status)
+    server.serve(args.db, args.host, args.port, recorder=status, outdoor_region=region)
 
 
 def cmd_record(args):
     start_blueair(args)
+    start_nea(args)
     record(args.db, device=args.device, min_interval=args.min_interval)
 
 
@@ -53,8 +72,17 @@ def cmd_blueair(args):
     blueair.poll(args.db, config)
 
 
+def cmd_nea(args):
+    try:
+        if nea.load_region(args.nea_config) is None:
+            sys.exit(f"put the home region in {args.nea_config} (see README)")
+    except (ValueError, tomllib.TOMLDecodeError) as e:
+        sys.exit(str(e))
+    nea.poll(args.db)
+
+
 def cmd_serve(args):
-    server.serve(args.db, args.host, args.port)
+    server.serve(args.db, args.host, args.port, outdoor_region=home_region(args))
 
 
 def cmd_oracle(args):
@@ -109,10 +137,16 @@ def main(argv=None):
         p.add_argument("--device", help="hidraw node (default: autodetect 04d9:a052)")
         p.add_argument("--min-interval", type=float, default=5.0, help="seconds between stored readings")
         purifier(p)
+        outdoor(p)
 
     def purifier(p):
         p.add_argument(
             "--blueair-config", type=Path, default=blueair.default_config_path(), help="Blueair login (default: %(default)s)"
+        )
+
+    def outdoor(p):
+        p.add_argument(
+            "--nea-config", type=Path, default=nea.default_config_path(), help="NEA home region (default: %(default)s)"
         )
 
     def serving(p):
@@ -136,8 +170,13 @@ def main(argv=None):
     purifier(p)
     p.set_defaults(func=cmd_blueair)
 
+    p = sub.add_parser("nea", help="poll NEA's outdoor PM2.5 (Singapore) only")
+    outdoor(p)
+    p.set_defaults(func=cmd_nea)
+
     p = sub.add_parser("serve", help="serve the dashboard only")
     serving(p)
+    outdoor(p)
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("oracle", help="print the pseudo-scientific analysis")
