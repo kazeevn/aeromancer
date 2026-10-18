@@ -101,6 +101,16 @@ Every 5 s the meter sends:
   follow CO2.
   - After a replug they jump by 30–50 counts and settle over about 10 minutes.
   - Their correlation with the temperature trend is weak (|r| ≤ 0.36).
+- **They are not air pressure.** We compared hourly means over 22 hours with `home_pressure`
+  (see [pressure.md](../pressure.md)), which swung by 3.9 hPa (1004.9–1008.8). We left out the
+  test hour and the 15 minutes after each replug.
+  - With temperature and CO2 accounted for, 0x52 moves 4.4 counts per hPa and 0x56 1.3. If they
+    were pressure (proportional, or in 0.1 hPa units), both would move 10–12 counts per hPa, and by
+    the same amount.
+  - Adding pressure barely improves the fit: the hourly scatter of 0x52 drops from 13.8 to 13.0
+    counts, and that of 0x56 from 10.4 to 10.3.
+  - A phone barometer logged 15:20–17:20 alongside the meter, but the pressure moved only
+    0.36 hPa and every channel shared one trend there, so it can't tell them apart.
 - **0x57 moves with 0x56** (r = 0.96 at the minute scale).
 - **No CO2 or humidity in them.** None of the four improves CO2 predicted from 0x6E. They didn't
   follow the purifier's humidity readings, which ranged from 58 to 68 %.
@@ -212,9 +222,8 @@ EEPROM.
 
 ## Open questions
 
-- **Are 0x52/0x56 pressure?** Probably not: they don't follow the twice-daily pressure tide, and
-  they react to replugging. A phone barometer log was started on 2026-10-18 to test this
-  directly.
+- **What are 0x52/0x56 and 0x57?** Not pressure (see above). The reference beam or lamp
+  intensity remains the best guess.
 - **What is the exact altitude formula?** Settings of 1000, 2000 and 3000 m would show its shape.
 - **What is the +46 ppm offset?** If it drifts over days, it is an automatic baseline correction.
 - **How does the firmware get from 0x4F/0x52/0x56/0x57 to 0x6E?** And what is 0x57 physically?
