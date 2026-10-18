@@ -321,6 +321,7 @@ def status(store: Store, settings: Settings | None, now: float | None = None) ->
         "expired": bool(expired[1]) if expired else None,
         "configured": settings is not None,
         "replace_at": settings.replace_at if settings else None,
+        "background": list(settings.background) if settings else None,
         "tests": tests,
         "forecast": forecast(healths, since, now, settings, caught(store, since, now, settings) if settings.airflow else None)
         if settings and since

@@ -48,9 +48,7 @@
       <article class="tile" id="filter-tile" hidden>
         <h2>Filter</h2>
         <p class="value"><span id="filter-now">–</span><span class="unit" id="filter-unit">%</span></p>
-        <p class="sub" id="filter-test"></p>
         <p class="sub" id="filter-due"></p>
-        <p class="sub" id="filter-app"></p>
       </article>
       <article class="tile">
         <h2>Stored readings</h2>
@@ -88,6 +86,14 @@
         </p>
       </header>
       <div class="chart" id="climate-chart" data-empty="No temperature or humidity readings in this range yet."></div>
+    </section>
+
+    <section class="card" id="filter-card" aria-labelledby="filter-title" hidden>
+      <header class="card-head">
+        <h2 id="filter-title">Filter</h2>
+        <p class="legend" id="filter-note"></p>
+      </header>
+      <div class="filter-grid" id="filter-details"></div>
     </section>
 
     <section class="oracle" aria-labelledby="oracle-title">

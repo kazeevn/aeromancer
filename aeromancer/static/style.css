@@ -178,6 +178,10 @@ button:focus-visible, .chart svg:focus-visible {
 .pill svg { flex: none; }
 
 .card { padding: 16px 18px 12px; margin-bottom: 12px; }
+.filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 24px; padding-bottom: 6px; }
+.filter-block h3 { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+.filter-block .value { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 4px 0 2px; }
+.filter-block .sub { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
 .card-head {
   display: flex;
   flex-wrap: wrap;

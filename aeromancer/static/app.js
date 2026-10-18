@@ -459,38 +459,64 @@ const fmtDate = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "sh
 const fmtMonth = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short" });
 const date = (ts, f = fmtDate) => f.format(new Date(ts * 1000));
 
-// The filter's health from the last decay test, its forecast, and the app's own timer (docs/blueair.md#filter-health).
+const pct = h => `${fmtInt.format(h * 100)} %`;
+const span90 = (lo, hi, f = fmtDate) => `90 %: ${date(lo, f)} – ${hi ? date(hi, f) : "never"}`;
+
+// The tile: the last decay test's health and the two replacement dates; the card below the charts: how they were made
+// (docs/blueair.md#filter-health).
 function renderFilter() {
   const f = state.filter;
   const tile = document.getElementById("filter-tile");
-  tile.hidden = !f || (f.app_days_left === null && !f.tests.length);
+  const card = document.getElementById("filter-card");
+  tile.hidden = card.hidden = !f || (f.app_days_left === null && !f.tests.length);
   if (tile.hidden) return;
   const test = f.tests.at(-1);
-  const now = document.getElementById("filter-now");
-  const testLine = document.getElementById("filter-test");
-  const dueLine = document.getElementById("filter-due");
-  document.getElementById("filter-unit").hidden = !(test && "health" in test);
-  if (!test) {
-    now.textContent = "–";
-    testLine.textContent = "no decay test since the replacement";
-  } else if (!("health" in test)) {
-    now.textContent = "–";
-    testLine.textContent = `decays ${fmt1.format(test.rate)} /h at speed 1 (${date(test.start, fmtDay)}); set the room in the config`;
-  } else {
-    now.textContent = fmtInt.format(test.health * 100);
-    const high = test.health_high === null ? "" : `–${fmtInt.format(test.health_high * 100)}`;
-    testLine.textContent = `${fmtInt.format(test.health_low * 100)}${high} % of fresh · tested ${date(test.start, fmtDay)}`;
-  }
+  const measured = test && "health" in test;
   const fc = f.forecast || {};
-  const due = (label, d) => d?.due ? `${label} ~${date(d.due)} (${date(d.due_early, fmtMonth)} – ${d.due_late ? date(d.due_late, fmtMonth) : "never"})` : null;
-  if (test && "health" in test && test.health <= f.replace_at) dueLine.textContent = "due now";
-  else dueLine.replaceChildren(...[due("due by age", fc.age), due("by what it caught", fc.caught)]
-    .filter(Boolean).flatMap((line, i) => i ? [html("br"), line] : [line]));
-  document.getElementById("filter-app").textContent =
-    f.expired ? "app: replace" : f.app_days_left === null ? "" : `app: ${f.app_days_left} days left`;
-  tile.title = "Clean air delivery as a share of a fresh filter's, from the last decay test (90 % range). "
-    + `Due when it falls to ${fmtInt.format((f.replace_at ?? 0.5) * 100)} %: if it wears with age, or with what it caught `
-    + "at the last week's pace. Repeat tests tell which. The app's timer counts running time only.";
+  document.getElementById("filter-now").textContent = measured ? fmtInt.format(test.health * 100) : "–";
+  document.getElementById("filter-unit").hidden = !measured;
+  const dates = [fc.age, fc.caught].filter(d => d?.due).map(d => date(d.due));
+  document.getElementById("filter-due").textContent = measured && test.health <= f.replace_at ? "replace now"
+    : dates.length ? `replace: ${dates.join(" / ")}`
+    : f.app_days_left !== null ? `app: ${f.app_days_left} days left` : "";
+  tile.title = "Clean air delivery as a share of a fresh filter's, from the last decay test. "
+    + "Replace: the forecast by age / by what it caught. Details below the charts.";
+
+  const grid = document.getElementById("filter-details");
+  grid.replaceChildren();
+  const block = (title, value, lines) => {
+    const b = html("div", { class: "filter-block" }, grid);
+    html("h3", {}, b, title);
+    html("p", { class: "value" }, b, value);
+    for (const line of lines.filter(Boolean)) html("p", { class: "sub" }, b, line);
+  };
+  const since = f.replaced ? `since the replacement on ${date(f.replaced)}${f.replaced_recorded ? "" : " (from the filter counter)"}` : "";
+  if (!test) block("Decay test", "none yet", [`none ${since}`, "how: docs/blueair.md#filter-health"]);
+  else if (!measured) block("Last decay test", `${fmt1.format(test.rate)} /h`, [
+    `${date(test.start)}, at speed 1`,
+    "set room_volume and cadr in the purifier's config to turn it into health",
+  ]);
+  else block("Last decay test", pct(test.health), [
+    `${pct(test.health_low)} – ${test.health_high === null ? "?" : pct(test.health_high)} of a fresh filter (90 %)`,
+    `${date(test.start)}: ${fmt1.format(test.rate)} ± ${fmt1.format(test.rate_error)} /h at speed 1, ${test.points} uploads fitted`,
+    f.background && `with ${fmt1.format(f.background[0])}–${fmt1.format(f.background[1])} /h lost without the fan`,
+    `${f.tests.length} test${f.tests.length === 1 ? "" : "s"} ${since}`,
+  ]);
+  if (fc.age?.due) block("By age", date(fc.age.due), [
+    span90(fc.age.due_early, fc.age.due_late),
+    `health = exp(−age / ${fmtInt.format(fc.age.scale)} days); now ~${pct(fc.age.now)}`,
+  ]);
+  if (fc.caught?.due) block("By what it caught", date(fc.caught.due), [
+    span90(fc.caught.due_early, fc.caught.due_late),
+    `${fmt1.format(fc.caught_mg / 1000)} g so far, ${fmtInt.format(fc.caught_mg_per_day)} mg a day over the last week`,
+    `health = exp(−caught / ${fmt1.format(fc.caught.scale / 1000)} g); now ~${pct(fc.caught.now)}`,
+  ]);
+  block("The app's timer", f.expired ? "replace" : f.app_days_left === null ? "–" : `${f.app_days_left} days left`, [
+    "counts the filter's running time only, 180 days of it",
+  ]);
+  document.getElementById("filter-note").textContent = f.replace_at
+    ? `Replace at ${pct(f.replace_at)} of a fresh filter. One test fits both forecasts alike; repeat it every few weeks, and after haze, to tell them apart.`
+    : "";
 }
 
 // ---------- the Oracle ----------

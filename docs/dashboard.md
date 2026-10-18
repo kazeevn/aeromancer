@@ -15,5 +15,7 @@ Hover or use the arrow keys on a chart to read every value at that moment.
 The purifier's CO₂ is not charted: it is an estimate from its VOC sensor
 that doesn't follow real CO₂ ([study](archive/blueair-eco2.md)).
 
-Below the charts, the dashboard reads your air through [the Oracle](oracle.md)
+Below the charts, a Filter card shows how the filter's tile was worked out:
+the last decay test, both forecasts with their ranges, and the app's timer.
+Then the dashboard reads your air through [the Oracle](oracle.md)
 and [the Tree of Life](kabbalah.md).
