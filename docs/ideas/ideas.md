@@ -1,9 +1,15 @@
+Record all channels from both devices
+Record pressure
+Store precise coordinates & altitude
+
 Online DB
 CLI endpoint
 Provenance and references for the occult analysis
 
 Calibrate the CO2 meter
 Check elevation setting of the CO2 meter
+
+Update devices firmware
 
 More data:
 Google Health
