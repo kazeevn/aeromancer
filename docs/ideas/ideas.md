@@ -1,6 +1,4 @@
-Record all channels from both devices
 Record pressure
-Store precise coordinates & altitude
 
 Online DB
 CLI endpoint
