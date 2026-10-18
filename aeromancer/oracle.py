@@ -16,6 +16,7 @@ import statistics
 from datetime import datetime
 
 from . import astro, lore
+from .device import EXPLAINED
 
 PHI = (1 + 5**0.5) / 2
 SCHUMANN_HZ = 7.83
@@ -83,10 +84,11 @@ SIGNAL_PERSONAS = {
     ("moon", 1): ("Moon Listener", "It brightens with the Moon. Nobody expected this, least of all the manufacturer."),
     ("moon", -1): ("Moon Shunner", "It fades as the Moon fills. It prefers the dark."),
 }
-SLEEPER = ("The Sleeper", "It has not moved at all. It is waiting for something.")
 TRICKSTER = ("The Trickster", "It moves, but follows nothing we can measure. Perhaps something we cannot.")
 CORRELATE_NAMES = {"co2": "CO\u2082", "temperature": "temperature", "time": "the passage of time", "moon": "the Moon"}
 SIGNAL_FOLLOWS_AT = 0.6  # |r| needed to say a signal follows something
+# Fewer readings than this in the window: a code the meter sends only at power-up, i.e. a setting or constant.
+SIGNAL_MIN_POINTS = 10
 
 CERTAINTIES = (
     "5σ (vibes)",
@@ -741,7 +743,14 @@ def _signal_correlations(points, references, start, end) -> dict[str, float | No
 
 
 def voices(signals, co2, temperature, start, end):
-    """The meter's undocumented codes, each identified by what it moves with, then spiritually."""
+    """The meter's still-unexplained codes that move, each identified by what it moves with, then spiritually."""
+    signals = {
+        name: points
+        for name, points in signals.items()
+        if name not in EXPLAINED
+        and len(points) >= SIGNAL_MIN_POINTS
+        and min(v for _, v in points) != max(v for _, v in points)
+    }
     if not signals:
         return {
             "id": "signals",
@@ -759,9 +768,7 @@ def voices(signals, co2, temperature, start, end):
         correlations = _signal_correlations(points, {"co2": co2, "temperature": temperature}, start, end)
         known = {k: r for k, r in correlations.items() if r is not None}
         best = max(known, key=lambda k: abs(known[k]), default=None)
-        if hi == lo:
-            persona, reading = SLEEPER
-        elif best is not None and abs(known[best]) >= SIGNAL_FOLLOWS_AT:
+        if best is not None and abs(known[best]) >= SIGNAL_FOLLOWS_AT:
             persona, reading = SIGNAL_PERSONAS[(best, 1 if known[best] > 0 else -1)]
             reading += f" (r = {known[best]:+.2f} with {CORRELATE_NAMES[best]}.)"
         else:
@@ -776,7 +783,7 @@ def voices(signals, co2, temperature, start, end):
                 "max": hi,
                 "favourite": favourite,
                 "correlations": correlations,
-                "follows": best if persona not in (SLEEPER[0], TRICKSTER[0]) else None,
+                "follows": best if persona != TRICKSTER[0] else None,
                 "spark": _downsample(values, 48),
             }
         )

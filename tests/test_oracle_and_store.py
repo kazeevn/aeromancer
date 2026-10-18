@@ -99,19 +99,21 @@ class OracleTest(unittest.TestCase):
         co2, _ = breathing_room()
         temp = [(t, 21 + math.sin((t - START) / 3600)) for t, _ in co2]  # unrelated to CO2
         signals = {
-            "op_71": [(t, v - 60) for t, v in co2],
-            "op_43": [(t + 1, 4000 - v * 10) for t, v in temp],
-            "op_6d": [(t, 3247.0) for t, _ in co2],
-            "op_6e": [(t, (i * 7919) % 13) for i, (t, _) in enumerate(co2)],
-            "op_4f": [(t, 7000 + (t - START) / 3600) for t, _ in co2],
+            "op_4f": [(t, v - 60) for t, v in co2],
+            "op_52": [(t + 1, 4000 - v * 10) for t, v in temp],
+            "op_57": [(t, (i * 7919) % 13) for i, (t, _) in enumerate(co2)],
+            "op_56": [(t, 7000 + (t - START) / 3600) for t, _ in co2],
+            "op_6d": [(t, 3247.0) for t, _ in co2],  # constant
+            "op_4a": [(co2[0][0], 711.0), (co2[-1][0], 710.0)],  # sent only at power-up
+            "op_71": [(t, v - 60) for t, v in co2],  # explained
         }
         f = oracle.voices(signals, co2, temp, co2[0][0], co2[-1][0])
         by_op = {s["op"]: s for s in f["signals"]}
-        self.assertEqual(by_op["0x71"]["persona"], "Echo of the Breath")
-        self.assertEqual(by_op["0x43"]["persona"], "Frost Spirit")
-        self.assertEqual(by_op["0x6d"]["persona"], "The Sleeper")
-        self.assertEqual(by_op["0x6e"]["persona"], "The Trickster")
-        self.assertEqual(by_op["0x4f"]["persona"], "The Ascender")
+        self.assertEqual(set(by_op), {"0x4f", "0x52", "0x57", "0x56"})
+        self.assertEqual(by_op["0x4f"]["persona"], "Echo of the Breath")
+        self.assertEqual(by_op["0x52"]["persona"], "Frost Spirit")
+        self.assertEqual(by_op["0x57"]["persona"], "The Trickster")
+        self.assertEqual(by_op["0x56"]["persona"], "The Ascender")
         self.assertEqual(oracle.voices({}, co2, temp, 0, 1)["headline"], "Silence")
 
     def test_airing_heeds_the_haze(self):

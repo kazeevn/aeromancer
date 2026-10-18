@@ -47,6 +47,9 @@ OP_HUMIDITY = 0x41  # 1/100 %RH, only on models with a humidity sensor
 # The CO2 sensor reports garbage for the first few frames after power-up.
 MAX_PLAUSIBLE_CO2 = 10_000
 
+# Undocumented codes we have decoded (see the module docstring); still stored, but no longer a mystery.
+EXPLAINED = frozenset({"op_43", "op_6e", "op_71", "op_4d"})
+
 _CSTATE = (0x48, 0x74, 0x65, 0x6D, 0x70, 0x39, 0x39, 0x65)  # b"Htemp99e"
 _SHUFFLE = (2, 4, 0, 7, 1, 6, 5, 3)
 
