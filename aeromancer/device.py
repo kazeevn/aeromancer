@@ -9,6 +9,19 @@ Older firmware obfuscates each frame with the key (see ``decrypt``); newer
 firmware sends them in the clear. Both are handled: a frame whose checksum is
 already valid is taken as plaintext.
 
+Besides CO2 and temperature, the meter sends codes we store raw as ``op_XX``
+(docs/archive/zytemp-channels.md has the evidence):
+
+    0x43  temperature, ~10x finer than 0x42
+    0x6E  filtered NDIR absorption signal that CO2 is calculated from
+    0x71  CO2 before the temperature, offset and altitude corrections
+    0x4F  raw CO2-sensitive sample
+    0x52, 0x56, 0x57  raw CO2-independent samples (reference beam?)
+    0x6D  slow internal temperature
+
+At power-up it also dumps 52 settings and constants, among them 0x4D, the
+altitude setting in metres, which scales CO2 by roughly the pressure ratio.
+
 We talk to the kernel's hidraw node directly, so no third-party packages are
 needed. Reading it as a normal user requires the udev rule shipped in
 ``udev/70-aeromancer.rules``.

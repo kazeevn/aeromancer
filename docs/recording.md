@@ -49,3 +49,15 @@ Devices are `zytemp` (the meter's quantities) and `blueair` (`blueair_*`).
 A placement holds until the next one of the same device. They are stored
 in the `placements` table of the same database, and the dashboard marks
 each move on the charts.
+
+## What the meter sends
+
+Besides `co2` and `temperature`, the meter sends codes that the recorder
+stores raw, as `op_XX` with the code in hex. Most arrive every 5–10 s:
+intermediate stages of the CO2 calculation and raw sensor samples. Some
+arrive only in a dump of 52 items when the meter powers up. One of those,
+`op_4d`, is the altitude setting in metres. The meter scales its CO2 by
+about the air-pressure ratio for that altitude, so set it to your altitude.
+The frames just after power-up can carry stale CO2 values.
+[archive/zytemp-channels.md](archive/zytemp-channels.md) has what each code
+is, and how we found out.

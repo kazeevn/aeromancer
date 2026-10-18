@@ -7,7 +7,9 @@ CLI endpoint
 Provenance and references for the occult analysis
 
 Calibrate the CO2 meter
-Check elevation setting of the CO2 meter
+Map the CO2 meter's altitude correction at 1000, 2000 and 3000 m (../archive/zytemp-channels.md)
+Test whether the meter's op_52/op_56 follow a barometer
+Drop the stale CO2 frames the meter sends right after power-up
 
 Update devices firmware
 
