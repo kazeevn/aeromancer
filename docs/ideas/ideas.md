@@ -1,21 +1,20 @@
 Online DB
 CLI endpoint
-Provenance and referneces for the occult analysis
-LICENSE
+Provenance and references for the occult analysis
 
 More data:
 Google Health
-Blutooth & WiFi devices
+Bluetooth & WiFi devices
 SP power & water
-Laptop's camera an mirophone
+Laptop's camera and microphone
 
-Put the zyTemp next to the purifier to study Blueair's eCO2 (see ../blueair-eco2.md).
-Put the meter on the purifier's intake side (right side), not by the outlet, since the outlet air
-would also affect the meter's temperature reading. Run it for several days so that a few
-reference resets are recorded. Outdoor air carries heavy PM, so the usual check (open a window
-and see CO2 fall to ~420) costs PM indoors. Use occupancy changes (empty room, sleeping, guests)
-and cooking events instead, and keep any airing short with the purifier on high. Note whether
-cooking is on gas: it produces real CO2.
+Keep the zyTemp next to the purifier for several days, so that a few of the eCO2 reference
+resets are recorded (the 13-hour side-by-side run is in ../archive/blueair-eco2.md). Keep the
+meter on the purifier's intake side (right side), not by the outlet, since the outlet air would
+also affect the meter's temperature reading. Outdoor air carries heavy PM, so the usual check
+(open a window and see CO2 fall to ~420) costs PM indoors. Use occupancy changes (empty room,
+sleeping, guests) and cooking events instead, and keep any airing short with the purifier on
+high.
 
 Test whether the VOC sensor responds at all: hold an open bottle of rubbing alcohol or hand
 sanitizer near the intake for a minute, and expect a VOC/eCO2 spike within one or two 5-minute

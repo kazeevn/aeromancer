@@ -36,7 +36,7 @@ class Instrument(NamedTuple):
 
 # Everything recorded, under the names the analysis gets it by. NEA's are the home region's PM2.5 and the
 # nearest weather station's; wind direction is left out, since an average of compass bearings means nothing,
-# and so is the Blueair's CO2, which is an estimate from its VOC sensor (docs/blueair-eco2.md).
+# and so is the Blueair's CO2, which is an estimate from its VOC sensor (docs/archive/blueair-eco2.md).
 INSTRUMENTS = {
     "co2": Instrument("zyTemp CO₂", "ppm", 0),
     "temperature": Instrument("zyTemp temperature", "°C", 1),

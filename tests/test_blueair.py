@@ -65,10 +65,10 @@ class BlueairTest(unittest.TestCase):
             path.write_text('username = "me@example.com"\npassword = "p\\"w"\n')
             path.chmod(0o600)
             self.assertEqual(blueair.load_config(path), blueair.Config("me@example.com", 'p"w'))
-            path.write_text(path.read_text() + 'device = "Kent"\n')
+            path.write_text(path.read_text() + 'device = "Bedroom"\n')
             path.chmod(0o644)
             with self.assertLogs("aeromancer.blueair", "WARNING"):
-                self.assertEqual(blueair.load_config(path).device, "Kent")
+                self.assertEqual(blueair.load_config(path).device, "Bedroom")
             path.chmod(0o600)
             path.write_text('username = "me@example.com"\n')
             with self.assertRaisesRegex(ValueError, "password"):

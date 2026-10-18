@@ -1,6 +1,6 @@
 # Blueair "CO2" is an estimate from the VOC sensor
 
-The Blueair Classic 490i ("Kent") reports a `co2` value through its cloud, which we store as
+The Blueair Classic 490i reports a `co2` value through its cloud, which we store as
 `blueair_co2`. It isn't a measurement. The purifier has no infrared CO2 sensor like the zyTemp
 meter's. The number is an *equivalent* CO2 (eCO2) that the firmware calculates from its gas
 (VOC) sensor. This is probably why the Blueair app doesn't show it.
@@ -80,7 +80,7 @@ On 2026-10-17 the cloud returned hourly means for 14 days, from 2026-10-03 20:23
   (12.8 at 10-04 10:23, 78 at 10-10 16:23). Since the step at 10-17 18:17 it has stayed at 4–24
   for hours, which is unprecedented in the two weeks. Either the sensor's reference reset, or it
   stopped responding. A deliberate VOC source near the intake would tell which (see
-  [ideas](ideas/ideas.md)).
+  [ideas](../ideas/ideas.md)).
 
 ## How far back the cloud goes
 
@@ -134,8 +134,6 @@ it missed a whole night of stuffy air.
 
 - What form does the eCO2 reference drift take, and how often does it reset? A step like the one
   at 18:17 should recur, maybe daily.
-- Gas cooking produces real CO2 *and* VOCs, so near a gas stove the two can rise together for
-  reasons that have nothing to do with how eCO2 is calculated.
 
 ## Sources
 

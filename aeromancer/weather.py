@@ -9,7 +9,7 @@ minutes, and keep each station's name and position in the ``stations``
 table, so the station that best stands for home can be chosen later.
 Averages and totals are stamped at the middle of their window, assuming
 the API stamps the window's end, as it does for PM2.5
-(docs/outdoor-pm25.md).
+(docs/nea.md).
 
 Asked with ``?date=YYYY-MM-DD``, the API returns that day's readings newest
 first, 25 timestamps a page, so the same walk back through the pages takes

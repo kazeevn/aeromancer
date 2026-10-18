@@ -1,4 +1,45 @@
-# Outdoor PM2.5: why NEA via data.gov.sg
+# Outdoor PM2.5 and weather (Singapore)
+
+Optionally, the recorder also fetches the outdoor PM2.5 that NEA measures,
+from [data.gov.sg](https://guide.data.gov.sg/developer-guide/real-time-apis).
+This is free, needs no key, and uses the standard library only. Name your
+region (`north`, `south`, `east`, `west` or `central`; see NEA's list of
+towns per region) in `~/.config/aeromancer/nea.toml`, or pass another file
+with `--nea-config`:
+
+```toml
+region = "central"
+```
+
+The region stays in that file, not in the command line or on the dashboard,
+which only says "outdoor". With the file present, `run` and `record` poll
+every 10 minutes for the hourly readings, and fill in up to a week after a
+gap; `python3 -m aeromancer nea` polls only NEA. All five regions are stored,
+as `nea_pm25_<region>`, each at the middle of the hour it averages; the
+dashboard charts yours.
+
+## Outdoor weather
+
+Add home's position to the same file, and the recorder also stores what
+NEA's nearest weather stations measure:
+
+```toml
+latitude = 1.35   # two decimals (about 1 km) are plenty
+longitude = 103.85
+```
+
+Every 5 minutes it stores, from each of the 3 stations nearest to home, the
+air temperature (`nea_temperature_<station>`, °C), relative humidity
+(`nea_humidity_<station>`, %), rainfall (`nea_rain_<station>`, mm per
+5 minutes), and wind speed and direction (`nea_wind_speed_<station>`, m/s;
+`nea_wind_direction_<station>`, degrees it blows from), plus each station's
+name and position in the `stations` table. After a gap it fills in up to a
+day back, which takes several minutes, since data.gov.sg rate-limits
+requests. The dashboard charts the nearest station's temperature and
+humidity next to the indoor ones. Like the region, the position stays in
+the file.
+
+## Why NEA via data.gov.sg
 
 The Blueair app shows outdoor air quality, but that comes from BreezoMeter (now Google), and
 `blueair_api` doesn't expose it. We use NEA's own measurements instead, from

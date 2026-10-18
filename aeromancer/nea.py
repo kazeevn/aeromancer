@@ -3,7 +3,7 @@
 NEA, the National Environment Agency, publishes through data.gov.sg the mean
 PM2.5 over the past hour for five regions (north, south, east, west, central),
 every hour, stamped with the hour's end. We store each at the middle of its
-hour (see docs/outdoor-pm25.md), all five in the table as
+hour (see docs/nea.md), all five in the table as
 ``nea_pm25_<region>``, so the region a home best matches can be chosen
 later. Asked with ``?date=YYYY-MM-DD``, the API returns that whole day, which
 fills in any gap up to a week back. Free, and works without an API key.

@@ -23,7 +23,7 @@ STATIC_FILES = {
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
 CHART_POINTS = 600
-# Not blueair_co2: it is recorded, but it is an estimate from the VOC sensor, not CO2 (docs/blueair-eco2.md).
+# Not blueair_co2: it is recorded, but it is an estimate from the VOC sensor, not CO2 (docs/archive/blueair-eco2.md).
 CHART_QUANTITIES = ("co2", "temperature", "humidity") + tuple(
     "blueair_" + q for q in ("pm1", "pm25", "pm10", "voc", "all_pollution", "temperature", "humidity")
 )
