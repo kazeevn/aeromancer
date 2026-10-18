@@ -82,6 +82,23 @@ On 2026-10-17 the cloud returned hourly means for 14 days, from 2026-10-03 20:23
   stopped responding. A deliberate VOC source near the intake would tell which (see
   [ideas](ideas/ideas.md)).
 
+## How far back the cloud goes
+
+Blueair doesn't publish a retention period. On 2026-10-18 we asked the cloud for longer and
+longer windows:
+
+- **The cutoff is 42 days.** A window of 41.98 days returned points from 2026-09-06 13:34. Any
+  longer window, even 42.01 days, returned nothing at all rather than a trimmed list.
+- **It is the same at every resolution.** Daily, hourly and 5-minute averages all reach back
+  42 days. A 30-day window at 5 minutes returned 7,856 of 8,640 possible points, with gaps but
+  no coarsening.
+- **This may be a limit on requests, not on storage.** The API takes only "the last N seconds",
+  with no start date, so we can't tell whether older data is deleted or just can't be asked for.
+  Either way, nothing older than 42 days can be retrieved.
+- **The settings have no history.** Fan speed and auto mode exist only as current values.
+
+So anything older than six weeks exists only in our own recording.
+
 ## Conclusion
 
 Treat `blueair_co2` as a smoothed VOC index, scaled to ppm and measured against a reference that
