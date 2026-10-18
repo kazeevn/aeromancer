@@ -13,13 +13,16 @@ and walls alone. The purifier's own sensor can't measure it: with the fan off
 it reads its own pocket of air, not the room. So it is taken as a range.
 
 Tests are found in the recording by the fan's settings: set by hand to 0, then
-by hand to speed 1 for 40 minutes or more. The forecast assumes the filter
-wears with age, ``health = exp(-age / tau)``, with ``tau`` fitted to the tests
-since the filter was replaced (docs/blueair.md#filter-health).
+by hand to speed 1 for 40 minutes or more. Two forecasts, each fitted to the
+tests since the filter was replaced: by age, ``health = exp(-age / tau)``, and
+by what it caught, ``health = exp(-caught / m0)``, ``caught`` being the
+particles a fresh filter would have taken from the air the purifier moved
+(docs/blueair.md#filter-health).
 """
 
 from __future__ import annotations
 
+import bisect
 import math
 import time
 import tomllib
@@ -42,6 +45,11 @@ MIN_DROP = 10.0  # µg/m³ from the first fitted point to the last
 RATES = (0.05, 30.0)  # /h, the range searched
 Z90 = 1.645  # half the width of a 90 % range, in standard deviations
 APP_DAYS = 180
+# Auto mode's PM2.5 thresholds for speeds 2 and 3, for the speed where none was recorded (docs/blueair.md#filter-health).
+AUTO_THRESHOLDS = (23.5, 33.5)
+SPEED_KEPT = 1800  # s a recorded fan speed stands for uploads that came without one
+MAX_STEP = 600  # s an upload's PM2.5 stands for at most: longer gaps the purifier was off or unseen
+PACE = 7 * 86400  # s of catching the forecast by what it caught carries on at
 
 
 @dataclass
@@ -51,6 +59,7 @@ class Settings:
     cadr_error: float = 0.15  # relative half-width of the range cadr may be off by
     background: tuple[float, float] = (0.3, 1.0)  # /h, the range of the loss with the fan off
     replace_at: float = 0.5  # health at which the filter is due
+    airflow: tuple[float, ...] | None = None  # m³/h at speeds 1, 2, ...; needed for the forecast by what it caught
 
 
 @dataclass
@@ -81,12 +90,16 @@ def load_settings(path) -> Settings | None:
             settings.background = (float(lo), float(hi))
         if "replace_at" in table:
             settings.replace_at = float(table["replace_at"])
+        if "airflow" in table:
+            settings.airflow = tuple(float(q) for q in table["airflow"])
     except KeyError as e:
         raise ValueError(f"{path}: [filter] lacks {e.args[0]!r}") from None
     except (TypeError, ValueError):
         raise ValueError(f"{path}: [filter] wants numbers, and background as [low, high]") from None
     if settings.room_volume <= 0 or settings.cadr <= 0 or not 0 < settings.replace_at < 1:
         raise ValueError(f"{path}: [filter] room_volume and cadr must be positive, replace_at between 0 and 1")
+    if settings.airflow is not None and (not settings.airflow or min(settings.airflow) <= 0):
+        raise ValueError(f"{path}: [filter] airflow must list positive numbers, speed 1 first")
     return settings
 
 
@@ -198,32 +211,90 @@ def health(rate: float, rate_error: float, settings: Settings) -> tuple[float, f
     return gain * settings.room_volume / settings.cadr, math.hypot(gain_sd / gain, settings.cadr_error / math.sqrt(3))
 
 
-def forecast(tests: list[tuple[float, float, float]], replaced: float, settings: Settings) -> dict | None:
-    """When health falls to ``replace_at`` if it goes as ``exp(-age / tau)``.
+def caught(store: Store, start: float, end: float, settings: Settings) -> list[tuple[float, float]]:
+    """``(ts, mg)``: what a fresh filter would have caught from ``start`` to each upload until ``end``.
 
-    ``tests`` are ``(ts, health, sd of its log)``. ``1 / tau`` is fitted
-    through the origin on ``-log health``, weighted by the tests' spread; the
-    early and late dates are its 90 % range, late None when that range allows
-    no wear at all.
+    Each upload's PM2.5 stands until the next one (at most ``MAX_STEP``), at the
+    fresh clean air delivery of the fan's speed: ``cadr`` scaled by the airflow.
+    Uploads without a recorded speed take the last one recorded within
+    ``SPEED_KEPT``, or else the one auto mode would pick for their PM2.5.
     """
-    pairs = [((ts - replaced) / 86400, -math.log(h), sd) for ts, h, sd in tests if h > 0 and sd > 0]
-    pairs = [p for p in pairs if p[0] > 0]
+    fan = {ts: v for ts, _, v in store.rows(FAN, start, end)}
+    efficiency = settings.cadr / settings.airflow[0]
+    out, total, last, speed, speed_ts = [], 0.0, None, None, -math.inf
+    for ts, _, pm in store.rows(PM, start, end):
+        if ts in fan:
+            speed, speed_ts = fan[ts], ts
+        elif ts - speed_ts > SPEED_KEPT:
+            speed = 1 + sum(pm >= t for t in AUTO_THRESHOLDS)
+        if last is not None:
+            ts0, pm0, s0 = last
+            flow = settings.airflow[min(int(s0), len(settings.airflow)) - 1] if s0 >= 1 else 0.0
+            total += pm0 * efficiency * flow * min(ts - ts0, MAX_STEP) / 3600 / 1000  # µg -> mg
+        out.append((ts, total))
+        last = (ts, pm, speed)
+    return out
+
+
+def _wear_rate(points: list[tuple[float, float, float]]) -> tuple[float, float] | None:
+    """``(k, its sd)`` of ``health = exp(-k x)`` through ``(x, health, sd of its log)`` points, weighted by their spread."""
+    pairs = [(x, -math.log(h), sd) for x, h, sd in points if x > 0 and h > 0 and sd > 0]
     if not pairs:
         return None
-    weight = sum(age * age / (sd * sd) for age, _, sd in pairs)
-    k = sum(age * y / (sd * sd) for age, y, sd in pairs) / weight
-    k_sd = 1 / math.sqrt(weight)
-    due_age = math.log(1 / settings.replace_at)
+    weight = sum(x * x / (sd * sd) for x, _, sd in pairs)
+    return sum(x * y / (sd * sd) for x, y, sd in pairs) / weight, 1 / math.sqrt(weight)
+
+
+def _due(fit, x_now: float, now: float, x_per_day: float, settings: Settings) -> dict | None:
+    """When ``exp(-k x)`` reaches ``replace_at``, with x going on at ``x_per_day``: the fit's 90 % range.
+
+    Late is None when the range allows no wear at all.
+    """
+    if fit is None or x_per_day <= 0:
+        return None
+    k, k_sd = fit
+    x_due = math.log(1 / settings.replace_at)
 
     def due(rate):
-        return replaced + due_age / rate * 86400 if rate > 0 else None
+        return now + max(0.0, x_due / rate - x_now) / x_per_day * 86400 if rate > 0 else None
 
     return {
-        "tau_days": 1 / k if k > 0 else None,
+        "scale": 1 / k if k > 0 else None,
+        "now": math.exp(-k * x_now),
         "due": due(k),
         "due_early": due(k + Z90 * k_sd),
         "due_late": due(k - Z90 * k_sd),
     }
+
+
+def forecast(
+    tests: list[tuple[float, float, float]], replaced: float, now: float, settings: Settings, caught_mg=None
+) -> dict:
+    """When health falls to ``replace_at``, by age and by what the filter caught.
+
+    ``tests`` are ``(ts, health, sd of its log)``. ``k`` is fitted through the
+    origin on ``-log health``. By age, ``scale`` is tau in days; by what it
+    caught, m0 in mg, with the catch going on at its pace over the last
+    ``PACE`` (at the average pace since the replacement it would be the age
+    forecast again). ``caught_mg`` is the ``(ts, mg)`` series from ``caught``.
+    """
+    age_now = (now - replaced) / 86400
+    out = {"age": _due(_wear_rate([((ts - replaced) / 86400, h, sd) for ts, h, sd in tests]), age_now, now, 1.0, settings)}
+    if caught_mg:
+        times = [ts for ts, _ in caught_mg]
+
+        def at(ts):
+            i = max(0, bisect.bisect_right(times, ts) - 1)
+            return caught_mg[i][1]
+
+        mg_now = caught_mg[-1][1]
+        days = min(PACE, now - replaced) / 86400
+        pace = (mg_now - at(now - days * 86400)) / days if days > 0 else 0.0
+        fit = _wear_rate([(at(ts), h, sd) for ts, h, sd in tests])
+        out["caught"] = _due(fit, mg_now, now, pace, settings)
+        out["caught_mg"] = mg_now
+        out["caught_mg_per_day"] = pace
+    return out
 
 
 def status(store: Store, settings: Settings | None, now: float | None = None) -> dict:
@@ -251,5 +322,7 @@ def status(store: Store, settings: Settings | None, now: float | None = None) ->
         "configured": settings is not None,
         "replace_at": settings.replace_at if settings else None,
         "tests": tests,
-        "forecast": forecast(healths, since, settings) if settings and since else None,
+        "forecast": forecast(healths, since, now, settings, caught(store, since, now, settings) if settings.airflow else None)
+        if settings and since
+        else None,
     }

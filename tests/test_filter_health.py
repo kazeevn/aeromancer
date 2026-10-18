@@ -83,16 +83,49 @@ class FilterHealthTest(unittest.TestCase):
         self.assertAlmostEqual(sd, math.hypot(math.hypot(0.2, 0.7 / math.sqrt(12)) / 4.0, 0.15 / math.sqrt(3)))
         self.assertEqual(fh.health(0.5, 0.1, settings)[0], 0.0)
 
-    def test_forecast_with_wear_by_age(self):
+    def test_forecast_by_age(self):
         settings = fh.Settings(room_volume=20.0, cadr=100.0)
-        f = fh.forecast([(TEST, 0.8, 0.2)], REPLACED, settings)
+        now = TEST + DAY
+        f = fh.forecast([(TEST, 0.8, 0.2)], REPLACED, now, settings)["age"]
         tau = 30 / -math.log(0.8)
-        self.assertAlmostEqual(f["tau_days"], tau)
+        self.assertAlmostEqual(f["scale"], tau)
+        self.assertAlmostEqual(f["now"], math.exp(-31 / tau))
         self.assertAlmostEqual(f["due"], REPLACED + tau * math.log(2) * DAY)
         self.assertLess(f["due_early"], f["due"])
         self.assertIsNone(f["due_late"])  # 0.8 within a factor of exp(±0.33) allows no wear at all
-        f = fh.forecast([(TEST, 0.8, 0.01)], REPLACED, settings)
+        f = fh.forecast([(TEST, 0.8, 0.01)], REPLACED, now, settings)["age"]
         self.assertLess(f["due"], f["due_late"])
+        self.assertNotIn("caught", fh.forecast([(TEST, 0.8, 0.01)], REPLACED, now, settings))
+
+    def test_forecast_by_what_it_caught_goes_at_the_last_weeks_pace(self):
+        settings = fh.Settings(room_volume=20.0, cadr=100.0)
+        now = TEST + DAY
+        # 100 mg a day for the first 24 days, then 400.
+        series = [(REPLACED + d * DAY, 100.0 * min(d, 24) + 400.0 * max(0, d - 24)) for d in range(32)]
+        f = fh.forecast([(TEST, 0.8, 0.01)], REPLACED, now, settings, series)
+        mg_at_test = 100 * 24 + 400 * 6
+        m0 = mg_at_test / -math.log(0.8)
+        self.assertAlmostEqual(f["caught"]["scale"], m0)
+        self.assertAlmostEqual(f["caught_mg_per_day"], 400.0)
+        self.assertAlmostEqual(f["caught"]["due"], now + (m0 * math.log(2) - series[-1][1]) / 400 * DAY)
+        self.assertLess(f["caught"]["due"], f["age"]["due"])  # caught faster lately
+
+    def test_caught(self):
+        settings = fh.Settings(room_volume=20.0, cadr=80.0, airflow=(100.0, 200.0, 400.0))
+        start = TEST
+        self.store.add(uploads(start, 4, 1, 1, lambda h: 10))  # speed 1: 80 m³/h of clean air
+        self.store.add(uploads(start + 1200, 4, 3, 1, lambda h: 10))  # speed 3: 320 m³/h
+        self.store.add([Reading(start + 2400, fh.PM, 40.0), Reading(start + 2700, fh.PM, 40.0)])  # no speed: kept
+        self.store.add([Reading(start + 9000, fh.PM, 40.0), Reading(start + 9300, fh.PM, 20.0)])  # after a gap: auto's speeds
+        self.store.add(uploads(start + 9600, 2, 0, 0, lambda h: 40))  # fan off catches nothing
+        mg = dict(fh.caught(self.store, start, start + DAY, settings))
+        self.assertAlmostEqual(mg[start + 1200], 10 * 80 * 4 * 300 / 3600 / 1000)
+        self.assertAlmostEqual(mg[start + 2400] - mg[start + 1200], 10 * 320 * 4 * 300 / 3600 / 1000)
+        self.assertAlmostEqual(mg[start + 2700] - mg[start + 2400], 40 * 320 * 300 / 3600 / 1000)
+        self.assertAlmostEqual(mg[start + 9000] - mg[start + 2700], 40 * 320 * 600 / 3600 / 1000)  # gap capped
+        self.assertAlmostEqual(mg[start + 9300] - mg[start + 9000], 40 * 320 * 300 / 3600 / 1000)  # 40: speed 3
+        self.assertAlmostEqual(mg[start + 9600] - mg[start + 9300], 20 * 80 * 300 / 3600 / 1000)  # 20: speed 1
+        self.assertAlmostEqual(mg[start + 9900], mg[start + 9600])
 
     def test_status(self):
         self.store.add([Reading(TEST + DAY, fh.blueair.FILTER_COUNTER, 8200.0), Reading(TEST + DAY, fh.EXPIRED, 0.0)])
@@ -105,15 +138,18 @@ class FilterHealthTest(unittest.TestCase):
         test = full["tests"][0]
         self.assertLess(test["health_low"], test["health"], test["health_high"])
         self.assertAlmostEqual(test["health"], (test["rate"] - 0.65) * 0.2)
-        self.assertGreater(full["forecast"]["due"], TEST)
+        self.assertGreater(full["forecast"]["age"]["due"], TEST)
+        self.assertNotIn("caught", full["forecast"])
+        with_airflow = fh.status(self.store, fh.Settings(20.0, 100.0, airflow=(125.0, 250.0, 500.0)), now=TEST + DAY)
+        self.assertGreater(with_airflow["forecast"]["caught"]["due"], TEST)
 
     def test_load_settings(self):
         path = Path(self.dir.name) / "blueair.toml"
         self.assertIsNone(fh.load_settings(path))
         path.write_text('username = "me@example.com"\npassword = "pw"\n')
         self.assertIsNone(fh.load_settings(path))
-        path.write_text(path.read_text() + "[filter]\nroom_volume = 30\ncadr = 100\nbackground = [0.2, 0.8]\n")
-        self.assertEqual(fh.load_settings(path), fh.Settings(30.0, 100.0, background=(0.2, 0.8)))
+        path.write_text(path.read_text() + "[filter]\nroom_volume = 30\ncadr = 100\nbackground = [0.2, 0.8]\nairflow = [125, 500]\n")
+        self.assertEqual(fh.load_settings(path), fh.Settings(30.0, 100.0, background=(0.2, 0.8), airflow=(125.0, 500.0)))
         path.write_text("[filter]\nroom_volume = 30\n")
         with self.assertRaises(ValueError):
             fh.load_settings(path)

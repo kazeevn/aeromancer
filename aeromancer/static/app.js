@@ -481,15 +481,16 @@ function renderFilter() {
     const high = test.health_high === null ? "" : `–${fmtInt.format(test.health_high * 100)}`;
     testLine.textContent = `${fmtInt.format(test.health_low * 100)}${high} % of fresh · tested ${date(test.start, fmtDay)}`;
   }
-  const fc = f.forecast;
+  const fc = f.forecast || {};
+  const due = (label, d) => d?.due ? `${label} ~${date(d.due)} (${date(d.due_early, fmtMonth)} – ${d.due_late ? date(d.due_late, fmtMonth) : "never"})` : null;
   if (test && "health" in test && test.health <= f.replace_at) dueLine.textContent = "due now";
-  else if (fc && fc.due) dueLine.textContent = `due ~${date(fc.due)} (${date(fc.due_early, fmtMonth)} – ${fc.due_late ? date(fc.due_late, fmtMonth) : "never"})`;
-  else dueLine.textContent = "";
+  else dueLine.replaceChildren(...[due("due by age", fc.age), due("by what it caught", fc.caught)]
+    .filter(Boolean).flatMap((line, i) => i ? [html("br"), line] : [line]));
   document.getElementById("filter-app").textContent =
     f.expired ? "app: replace" : f.app_days_left === null ? "" : `app: ${f.app_days_left} days left`;
   tile.title = "Clean air delivery as a share of a fresh filter's, from the last decay test (90 % range). "
-    + `Due when it falls to ${fmtInt.format((f.replace_at ?? 0.5) * 100)} %, if the filter wears with age. `
-    + "The app's timer counts running time only.";
+    + `Due when it falls to ${fmtInt.format((f.replace_at ?? 0.5) * 100)} %: if it wears with age, or with what it caught `
+    + "at the last week's pace. Repeat tests tell which. The app's timer counts running time only.";
 }
 
 // ---------- the Oracle ----------

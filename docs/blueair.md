@@ -59,7 +59,7 @@ not before the previous upload.
 The app's timer is blind to what the filter caught. A decay test measures
 it instead: how fast the purifier at speed 1 clears a room filled with
 particles, against what a fresh filter would do. The dashboard's Filter tile
-shows the last test and a forecast.
+shows the last test and two forecasts.
 
 **The test.** With haze outside (or another particle source), in the room
 the purifier stands in:
@@ -85,13 +85,24 @@ five minutes with the window shut, then rose slowly after it was opened). So
 it is taken as a range, 0.3–1 /h by default, which moves the health by
 about ±0.1 when a fresh filter clears 4–5 /h.
 
-The forecast assumes the filter wears with age, `health = exp(-age / tau)`,
-and fits `1 / tau` to the tests since the replacement (the latest
-`blueair_filter_replaced`, or else as long ago as the filter counter has
-run). Its range is the 90 % one. One test fixes `tau` only loosely; repeat it
-every few weeks, and after haze. If the health falls faster in haze than
-between, it goes with what the filter caught, not its age, and the forecast
-is too late.
+There are two forecasts, each fitted to the tests since the replacement (the
+latest `blueair_filter_replaced`, or else as long ago as the filter counter
+has run), each with its 90 % range:
+
+- **By age**: `health = exp(-age / tau)`. Charge on the filter's fibres
+  fades with time, faster in humid air, whatever the air carried.
+- **By what it caught**: `health = exp(-caught / m0)`, `caught` being the
+  particles a fresh filter would have taken from the air the purifier
+  moved: each upload's PM2.5 × the fresh clean air delivery at the fan's
+  speed × the time to the next upload. It goes on at the last week's pace,
+  so it comes earlier in haze and later in clean air. (At the average pace
+  since the replacement it would be the age forecast again.) Uploads with
+  no recorded speed take auto mode's: speed 1 below 23.5 µg/m³, 2 below
+  33.5, else 3 (it matched the recorded speed 91 % of a day).
+
+One test fits both equally well. Repeat it every few weeks, and after haze:
+if the health falls faster across haze than across clean air, it goes with
+what the filter caught.
 
 The room and the purifier's figures go in the purifier's config:
 
@@ -102,12 +113,14 @@ cadr = 100.0         # m³/h, a fresh filter's clean air delivery at speed 1
 # cadr_error = 0.15  # how far off cadr may be, relative
 # background = [0.3, 1.0]  # /h, the loss with the fan off
 # replace_at = 0.5   # health at which the filter is due
+airflow = [130, 260, 520]  # m³/h at speeds 1, 2, 3, for the forecast by what it caught
 ```
 
-For `cadr`, Blueair lists the airflow at each speed and the clean air
-delivery (CADR) at the top one only; their ratio at the top speed (about
-0.8) times the airflow at speed 1 is a fair guess. Without the table the
-tile shows the decay rate and the app's timer only.
+For `cadr`, Blueair lists the airflow at the lowest and the highest speed,
+and the clean air delivery (CADR) at the highest only; their ratio there
+(about 0.8) times the airflow at speed 1 is a fair guess. Speed 2's airflow
+can be put between the two. Without the table the tile shows the decay rate
+and the app's timer only; without `airflow`, only the forecast by age.
 
 `blueair_co2` is recorded but not charted or analysed: it is an estimate
 from the VOC sensor that doesn't follow real CO₂
