@@ -1,9 +1,10 @@
 """Kabbalistic analysis of the timeseries, in the Oracle's tradition.
 
 Every number is computed honestly from the data; every reading is not. The
-Tree of Life, the 22 paths and their letters, the gematria values and the
-sefirot of the days of the week follow the usual (Golden Dawn / Kircher and
-mispar hechrachi) attributions; their bearing on your ventilation is nil.
+Tree of Life, the 22 paths and their letters and the gematria values follow
+the usual (Golden Dawn / Kircher and mispar hechrachi) attributions; the
+sefirot of the days of the week are a modern convention. Their bearing on
+your ventilation is nil.
 Name-finding, Atbash and the coincidences borrow their methods from Scott
 Alexander's novel Unsong (https://unsongbook.com/).
 """
@@ -17,7 +18,7 @@ from collections import Counter
 from datetime import datetime
 from typing import NamedTuple
 
-from .oracle import _interpolate, _pick, airing
+from .oracle import _cells_before, _date, _duration, _interpolate, _latest, _long_run, _markov, _pick, _rate, _steps, _when, airing, hazy
 
 STEADY_PPM_PER_MIN = 0.5  # slower than this, the air is in balance
 STUFFY_PPM = 1000
@@ -57,8 +58,9 @@ INSTRUMENTS = {
     "outdoor_wind_speed": Instrument("wind speed", "m/s", 1),
 }
 
-# The seven vessels, one per lower sefira, as in Luria's account of the seven that shattered:
-# quantity, limit at which it breaks (WHO 2021 24-hour guidelines for particles; the choir's VOC comfort), sefira.
+# The seven vessels, one per lower sefira: in Luria's account those of the six below the upper three shattered,
+# and Malkhut's nearly so. Quantity, limit at which it breaks (WHO 2021 24-hour guidelines for particles; the
+# choir's VOC comfort), sefira.
 VESSELS = (
     ("co2", STUFFY_PPM, "Chesed"),
     ("blueair_voc", 300, "Gevurah"),
@@ -197,6 +199,37 @@ WORDS = LEXICON + NAMES
 ALEPHBET = "אבגדהוזחטיכלמנסעפצקרשת"
 FINALS = str.maketrans("ךםןףץ", "כמנפצ")
 ATBASH = str.maketrans(ALEPHBET, ALEPHBET[::-1])
+# What each letter's name means, as in the Golden Dawn's tables (Crowley's 777).
+LETTER_MEANINGS = dict(zip(ALEPHBET, (
+    "an ox", "a house", "a camel", "a door", "a window", "a nail", "a sword", "a fence", "a serpent", "a hand", "the palm of a hand",
+    "an ox-goad", "water", "a fish", "a prop", "an eye", "a mouth", "a fish-hook", "the back of the head", "a head", "a tooth", "a mark",
+)))
+
+# What each Name heard in the chant does, as Names do things in Unsong.
+NAME_VIRTUES = {
+    "אויר": "spoken in a stale room, it freshens it; the patent is pending",
+    "חלון": "it opens a window without letting the haze in, which is why UNSONG has classified it",
+    "רוח": "it summons a breeze, or a spirit; results vary",
+    "הבל": "it is Ecclesiastes' word, and whatever it is spoken over turns out to be vapour",
+    "אור": "it lights a dark room for the length of one breath",
+    "אמת": "written on a golem's brow it wakes the clay, and with the aleph rubbed out, מת, dead, puts it back to sleep",
+    "אמן": "it seals whatever prophecy was spoken before it",
+    "נפש": "it counts the souls in a room, though the CO₂ does it cheaper",
+    "אדם": "it is made of אדמה, earth, and the dust in the purifier's filter remembers it",
+    "עפר": "it settles the dust, for dust thou art",
+    "מים": "it calls up humidity; never speak it in the bathroom",
+    "שמש": "it warms a room by a tenth of a degree, which the meter will notice",
+    "ירח": "it ties a room to the Moon; best left unspoken",
+    "חי": "it is the number of life, 18, and should be given in multiples",
+    "אש": "it lights the stove, and the VOC sensor will tell",
+    "אף": "it sharpens the nose to smell stale air before the meter does",
+    "לב": "it slows the heart of whoever hears it; the watch will tell",
+    "שם": "it is the Name of names, and names whatever stands nearest",
+    "עץ": "it grows a tree, which will trade your CO₂ for oxygen, eventually",
+    "גן": "it recalls Eden, where the air was fine",
+}
+TETRAGRAMMATON = "יהוה"
+SPARKS = 288  # the sparks that fell when the vessels broke, as Luria counted them
 
 # (number, what it is), for the coincidences.
 SACRED = (
@@ -219,7 +252,8 @@ SACRED = (
 )
 COINCIDENCE_WAYS = ("exact", "mirror", "hidden", "digits", "multiple")
 
-# Sunday to Saturday, as in the counting of the Omer.
+# Sunday to Saturday: the seven lower sefirot in the order the Omer counts its days, laid on the week (a modern
+# convention; no classical source maps them to weekdays).
 WEEKDAY_SEFIROT = ("Chesed", "Gevurah", "Tiferet", "Netzach", "Hod", "Yesod", "Malkhut")
 DAY_NAMES = ("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Shabbat")
 
@@ -323,6 +357,82 @@ def _sefira_means(sefirot: list[str], others: dict) -> tuple[dict, str]:
     )
 
 
+SEFIRA_NAMES = [s[0] for s in SEFIROT]
+BEAUTY = "Tiferet"  # the still point the counsel leads to
+
+
+def _sefira_walk(points, now: float, step: float, steps: int):
+    """The air's walk on the tree in cells of ``step`` seconds, each cell's sefira by its level and its change from
+    the cell before, and where the chain of them leads: ``(states, walk)``."""
+    cells = _cells_before(points, now, step)
+    states = [None]
+    for before, cell in zip(cells, cells[1:]):
+        if before is None or cell is None:
+            states.append(None)
+            continue
+        rate = (cell - before) / step * 60
+        trend = "steady" if abs(rate) < STEADY_PPM_PER_MIN else "rising" if rate > 0 else "falling"
+        states.append(SEFIRA_NAMES.index(sefira_of(cell, trend)))
+    return states, _markov(cells, states, len(SEFIROT), steps)
+
+
+def foresee_tree(points, ctx, now, times):
+    """The air walks the tree as it has walked it before: a Markov chain over the sefirot, level and trend together."""
+    step, ahead = _steps(points, times)
+    walk = _sefira_walk(points, points[-1][0], step, max(ahead))[1]
+    return [walk[k - 1][1] for k in ahead] if walk else None
+
+
+def _path(a: str, b: str) -> tuple[str, str] | None:
+    """The path joining two sefirot, ``(letter, name)``, if one does."""
+    return next(((letter, name) for letter, name, x, y in PATHS if {x, y} == {a, b}), None)
+
+
+def _way(a: str, b: str) -> list[tuple[str, str]]:
+    """The fewest paths from sefira ``a`` to ``b``, by breadth-first search over the tree."""
+    routes, seen = [[a]], {a}
+    while routes:
+        route = routes.pop(0)
+        if route[-1] == b:
+            return [_path(x, y) for x, y in zip(route, route[1:])]
+        for _, _, x, y in PATHS:
+            for here, there in ((x, y), (y, x)):
+                if here == route[-1] and there not in seen:
+                    seen.add(there)
+                    routes.append(route + [there])
+    return []
+
+
+def _tree_prophecy(co2, path_entries) -> dict:
+    end = co2[-1][0]
+    step = 3600 if end - co2[0][0] >= 12 * 3600 else 600
+    states, walk = _sefira_walk(co2, end, step, 300)
+    if not walk:
+        return {}
+    here = SEFIRA_NAMES[states[-1]]
+    nxt = SEFIRA_NAMES[max(range(len(SEFIROT)), key=walk[0][0].__getitem__)]
+    chance = walk[0][0][SEFIRA_NAMES.index(nxt)]
+    within = "the hour" if step == 3600 else "ten minutes"
+    if nxt == here:
+        foretold = f"The air will most likely rest in {here} through {within} ({chance:.0%})."
+    elif path := _path(here, nxt):
+        foretold = f"From {here}, the air will most likely walk the path of {path[1]} ({path[0]}), {LETTER_MEANINGS[path[0]]}, to {nxt} within {within} ({chance:.0%})."
+    else:
+        foretold = f"From {here}, the air will most likely leap the Abyss to {nxt} within {within} ({chance:.0%}), where no path runs."
+    if here == BEAUTY:
+        counsel = "You stand in Tiferet, Beauty: hold the air as it is, between 500 and 800 ppm and still."
+    else:
+        letters = ", ".join(f"{name} ({letter})" for letter, name in _way(here, BEAUTY))
+        counsel = f"The way from {here} to Tiferet, Beauty, runs by {letters}: bring the air to between 500 and 800 ppm, and hold it still."
+    karma = _long_run(walk)
+    home = max(range(len(SEFIROT)), key=karma.__getitem__)
+    worn = max(path_entries, key=lambda p: p["count"])
+    revealed = f"In the end the air will dwell {karma[home]:.0%} of its time in {SEFIRA_NAMES[home]}, however it wanders now"
+    if worn["count"]:
+        revealed += f"; its most worn path is {worn['name']} ({worn['letter']}), whose letter is {LETTER_MEANINGS[worn['letter']]}"
+    return {"foretold": foretold, "counsel": counsel, "revealed": revealed + "."}
+
+
 def tree_of_life(co2, others: dict | None = None, outdoor_pm25: float | None = None):
     """``others`` maps instrument keys to their points, to be read at each sefira the CO2 visits."""
     sefirot = [sefira_of(v, trend) for (_, v), trend in zip(co2, _trends(co2))]
@@ -385,6 +495,7 @@ def tree_of_life(co2, others: dict | None = None, outdoor_pm25: float | None = N
         "sefirot": entries,
         "paths": path_entries,
         "leaps": leaps,
+        "prophecy": _tree_prophecy(co2, path_entries),
     }
 
 
@@ -392,7 +503,66 @@ def _nearest_word(n: int, words=LEXICON):
     return min(words, key=lambda w: (abs(gematria(w[0]) - n), gematria(w[0])))
 
 
-def gematria_reading(co2, means: dict | None = None):
+STILL = 1 / 3600  # units a second; slower, the air is not on its way to any word
+
+
+def _next_word(value: float, pace: float):
+    """The word the air is on its way to spell: the nearest whose value lies ahead of ``value`` at ``pace``."""
+    if abs(pace) < STILL:
+        return None
+    ahead = [w for w in WORDS if (gematria(w[0]) - value) * pace > 0]
+    return min(ahead, key=lambda w: abs(gematria(w[0]) - value), default=None)
+
+
+def foresee_gematria(points, ctx, now, times):
+    """The air is spelling a word: it goes on at its present pace until it has spelled the next one, and rests there."""
+    here, pace = _latest(points), _rate(points)
+    if not (word := _next_word(here, pace)):
+        return [here] * len(times)
+    goal = gematria(word[0])
+    return [min(here + pace * (t - now), goal) if pace > 0 else max(here + pace * (t - now), goal) for t in times]
+
+
+WORD_COUNSELS = {  # what to do when the air is about to spell a word; for any other, be prepared
+    "חלון פתוח": "The air itself asks for an open window. {airing}",
+    "דלת": "Open a door between rooms, and let the house share its air.",
+    "תיקון": "Repair something: clean the purifier's pre-filter.",
+    "תיקון עולם": "Repair the world, beginning with the purifier's pre-filter.",
+    "נשימה": "Take a deep breath while it is still a good one.",
+    "מטהר אוויר": "Turn the purifier up; the air has asked for it by name.",
+    "מאוורר": "Turn on a fan.",
+    "חדר סגור": "Beware the closed room: open its door at least.",
+    "שבת": "Rest.",
+    "תשובה": "Return the meter to where it stood before.",
+    "שבירת הכלים": "Brace for the breaking of the vessels: it falls at 1017 ppm, a breath past the window's due.",
+}
+
+
+def _gematria_prophecy(co2, means: dict, outdoor_pm25: float | None) -> dict:
+    end = co2[-1][0]
+    here, pace = _latest(co2), _rate(co2)
+    prophecy = {}
+    if word := _next_word(here, pace):
+        text, translit, meaning = word
+        value = gematria(text)
+        arrives = end + (value - here) / pace
+        when = _when(arrives, end) if arrives - end < 2 * 86400 else f"in {(arrives - end) / 86400:.0f} days"
+        prophecy["foretold"] = f"At its present pace ({pace * 60:+.1f} ppm a minute), your breath will spell {text} ({translit}, {meaning}, {value}) {when}."
+        prophecy["counsel"] = WORD_COUNSELS.get(text, f"Prepare: the air is about to say {translit} ({meaning}).").format(airing=airing(outdoor_pm25))
+    else:
+        text, translit, _ = _nearest_word(round(here), WORDS)
+        prophecy["foretold"] = f"Your breath is still, or past every word: it goes on spelling {text} ({translit})."
+    breath = _nearest_word(round(here))
+    kin = [k for k, m in means.items() if k != "co2" and m >= 1 and _nearest_word(round(m)) == breath]
+    if kin:
+        prophecy["revealed"] = (
+            f"Your newest breath and the mean {INSTRUMENTS[kin[0]].label} both lean toward {breath[0]} ({breath[2]}): "
+            "in the language of creation, they are one thing."
+        )
+    return prophecy
+
+
+def gematria_reading(co2, means: dict | None = None, outdoor_pm25: float | None = None):
     """``means`` maps every instrument with readings, the CO2 one included, to its mean."""
     mean = round(statistics.fmean(v for _, v in co2))
     now = round(co2[-1][1])
@@ -427,6 +597,7 @@ def gematria_reading(co2, means: dict | None = None):
         "meaning": meaning,
         "value": value,
         "total": total,
+        "prophecy": _gematria_prophecy(co2, means or {}, outdoor_pm25),
     }
 
 
@@ -456,6 +627,40 @@ def _shabbat_rest(series: dict) -> str:
         return ""
     named = f": {', '.join(resting)}" if 0 < len(resting) <= 4 else ""
     return f" On Shabbat, {len(resting)} of {judged} instruments fall quiet, reading lower than on the other days{named}."
+
+
+def foresee_week(points, ctx, now, times):
+    """Each day of the week keeps its character: the air at each hour as it was on that weekday, at that hour."""
+    profile: dict[tuple[int, int], list[float]] = {}
+    for t, v in points:
+        d = datetime.fromtimestamp(t)
+        profile.setdefault((d.weekday(), d.hour), []).append(v)
+    out = [statistics.fmean(vs) if (vs := profile.get((d.weekday(), d.hour))) else None for d in map(datetime.fromtimestamp, times)]
+    return out if any(v is not None for v in out) else None
+
+
+def _week_prophecy(co2, end, means: list) -> dict:
+    tomorrow = _weekday(end + 86400)
+    if means[tomorrow] is not None:
+        foretold = f"Tomorrow is {DAY_NAMES[tomorrow]}, the day of {WEEKDAY_SEFIROT[tomorrow]}: by its past, your air will average {means[tomorrow]:.0f} ppm."
+    else:
+        foretold = f"Tomorrow is {DAY_NAMES[tomorrow]}, the day of {WEEKDAY_SEFIROT[tomorrow]}, which this window has not yet seen: widen it to a week."
+    prophecy = {"foretold": foretold}
+    seen = [i for i, m in enumerate(means) if m is not None]
+    if len(seen) >= 2:
+        best, worst = min(seen, key=means.__getitem__), max(seen, key=means.__getitem__)
+        prophecy["counsel"] = f"Invite your guests on {DAY_NAMES[best]}, in {WEEKDAY_SEFIROT[best]}, when the air is lightest; keep {DAY_NAMES[worst]} quiet."
+    days = [[] for _ in range(7)]
+    for t, v in co2:
+        days[_weekday(t)].append(v)
+    steady = {i: statistics.pstdev(d) for i, d in enumerate(days) if len(d) >= 12}
+    if len(steady) >= 3:
+        rest = min(steady, key=steady.get)
+        prophecy["revealed"] = (
+            f"Your air keeps its own Shabbat on {DAY_NAMES[rest]}: it varies least then (±{steady[rest]:.0f} ppm), "
+            + ("as the commandment asks." if rest == 6 else "whatever the calendar says.")
+        )
+    return prophecy
 
 
 def week_of_creation(co2, end, series: dict | None = None):
@@ -490,6 +695,7 @@ def week_of_creation(co2, end, series: dict | None = None):
             {"day": d, "sefira": s, "mean": m, "today": i == today}
             for i, (d, s, m) in enumerate(zip(DAY_NAMES, WEEKDAY_SEFIROT, means))
         ],
+        "prophecy": _week_prophecy(co2, end, means),
     }
 
 
@@ -521,7 +727,57 @@ def vessel(points, limit: float) -> dict:
     }
 
 
-def vessels(series: dict):
+def _tikkun(key: str, outdoor_pm25: float | None) -> str:
+    """How to mend the vessel ``key`` breaks."""
+    if key == "co2":
+        return "thin the crowd and let the purifier sing" if hazy(outdoor_pm25) else "open a window"
+    return {
+        "blueair_voc": "put away what gives off fumes, and keep the purifier running",
+        "blueair_pm25": "run the purifier higher",
+        "blueair_pm10": "run the purifier higher, and dust",
+        "outdoor_pm25": "nothing mends the sky, so keep the windows shut until it mends itself",
+    }.get(key, "dry the air, with the air conditioner's dry mode")
+
+
+def _vessels_prophecy(rows: list[dict], series: dict, outdoor_pm25: float | None) -> dict:
+    """When each vessel will shatter or be mended, at the pace of its last hour, and how to mend the worst."""
+    end = max(series[r["key"]][-1][0] for r in rows)
+    events = []
+    for r in rows:
+        points = series[r["key"]]
+        here, pace = _latest(points), _rate(points)
+        if not r["broken"] and pace > 0 and here < r["limit"]:
+            events.append((points[-1][0] + (r["limit"] - here) / pace, r["sefira"], "shatters", r))
+        elif r["broken"] and pace < 0:
+            events.append((points[-1][0] + (here - VESSEL_MENDING * r["limit"]) / -pace, r["sefira"], "is mended", r))
+    soon = sorted(e for e in events if e[0] - end < 7 * 86400)[:2]
+    if soon:
+        told = [f"the vessel of {sefira} ({r['label']}) {verb} {_when(t, end)}" for t, sefira, verb, r in soon]
+        foretold = f"At the present pace, {' and '.join(told)}."
+    else:
+        foretold = "At the present pace, no vessel shatters and none is mended: the world holds as it is."
+    broken = [r for r in rows if r["broken"]]
+    worst = max(broken, key=lambda r: r["exile_share"]) if broken else next((r for _, _, verb, r in soon if verb == "shatters"), None)
+    if worst:
+        counsel = (
+            f"To {'mend' if worst['broken'] else 'spare'} the vessel of {worst['sefira']}, bring the {worst['label']} below "
+            f"{VESSEL_MENDING * worst['limit']:g} {worst['unit']}: {_tikkun(worst['key'], outdoor_pm25)}."
+        )
+    else:
+        counsel = "Every vessel is whole and none is in danger: gather no sparks today."
+    span = max(series[r["key"]][-1][0] - series[r["key"]][0][0] for r in rows)
+    mended = sum(r["mended"] for r in rows)
+    if mended and span:
+        days = SPARKS / (mended / (span / 86400))
+        revealed = f"Luria counted {SPARKS} sparks fallen into the husks; at {mended / (span / 86400):.1f} mendings a day, the household will have raised them all " + (
+            f"by {_date(end + days * 86400)}." if days < 3650 else f"in {days / 365:.0f} years."
+        )
+    else:
+        revealed = f"Luria counted {SPARKS} sparks fallen into the husks; this window has raised none of them."
+    return {"foretold": foretold, "counsel": counsel, "revealed": revealed}
+
+
+def vessels(series: dict, outdoor_pm25: float | None = None):
     """Each of the seven vessels whose instrument has readings."""
     rows = [
         {"key": key, "label": INSTRUMENTS[key].label, "sefira": sefira, "limit": limit,
@@ -557,6 +813,7 @@ def vessels(series: dict):
         "vessels": rows,
         "shattered": shattered,
         "mended": mended,
+        "prophecy": _vessels_prophecy(rows, series, outdoor_pm25),
     }
 
 
@@ -644,7 +901,45 @@ def llull(series: dict):
         "mark": mark,
         "names": names,
         "voices": voices,
+        "prophecy": _llull_prophecy(series, names, voices),
     }
+
+
+def _chance(word: str, frequency: dict) -> float:
+    """The chance that a chant with these letter ``frequency``s spells ``word`` starting at a given letter."""
+    return math.prod(frequency.get(c, 0.0) for c in word.translate(FINALS))
+
+
+def _llull_prophecy(series: dict, names: list[dict], voices: list[dict]) -> dict:
+    """The next Name the chant will speak and when, the virtue of the Name heard most, and how often the
+    instruments together would speak the Tetragrammaton."""
+    soonest, rate_of_name = None, 0.0
+    for key, points in series.items():
+        span = points[-1][0] - points[0][0] if len(points) > 1 else 0
+        if not span:
+            continue
+        stream = chant(points)
+        frequency = {c: n / len(stream) for c, n in Counter(stream).items()}
+        pace = len(stream) / span  # letters a second
+        for word, _, meaning in NAMES:
+            if (p := _chance(word, frequency)) and (soonest is None or 1 / (p * pace) < soonest[0]):
+                soonest = (1 / (p * pace), word, meaning, key, p)
+        rate_of_name += pace * _chance(TETRAGRAMMATON, frequency)
+    prophecy = {}
+    if soonest:
+        wait, word, meaning, key, p = soonest
+        prophecy["foretold"] = (
+            f"The next Name will be {word} ({meaning}), spoken by the {INSTRUMENTS[key].label} in about {_duration(wait)}: "
+            f"one chance in {1 / p:,.0f} at each reading."
+        )
+    if names:
+        potent = max(names, key=lambda n: n["count"])
+        prophecy["counsel"] = f"Keep {potent['word']} ({potent['meaning']}) about you, heard {potent['count']} times: {NAME_VIRTUES[potent['word']]}."
+    if rate_of_name:
+        prophecy["revealed"] = f"Together your instruments will speak the Tetragrammaton, {TETRAGRAMMATON}, about once every {_duration(1 / rate_of_name)}. UNSONG has been informed."
+    elif voices:
+        prophecy["revealed"] = f"None of your instruments can speak the Tetragrammaton, {TETRAGRAMMATON}: the letters are not in them. UNSONG may rest."
+    return prophecy
 
 
 def _atbash(n: int) -> tuple[str, str, int]:
@@ -674,7 +969,14 @@ def _mirror_pair(means: dict) -> str:
     )
 
 
-def temurah(co2, means: dict | None = None):
+def foresee_temurah(points, ctx, now, times):
+    """Atbash hides the future inside the present: the air to come is the mirror of the air now."""
+    if not 1 <= (n := round(_latest(points))) <= 999_999:
+        return None
+    return [_atbash(n)[2]] * len(times)
+
+
+def temurah(co2, means: dict | None = None, outdoor_pm25: float | None = None):
     """Atbash, the letter substitution Unsong's kabbalists (and Jeremiah) used, applied to the means."""
     mean = round(statistics.fmean(v for _, v in co2))
     numeral = hebrew_numeral(mean)
@@ -685,6 +987,18 @@ def temurah(co2, means: dict | None = None):
         relation = f"the very number of {word} ({translit}, {meaning})."
     else:
         relation = f"{abs(gap)} {'beyond' if gap > 0 else 'shy of'} {word} ({translit}, {meaning})."
+    now = round(_latest(co2))
+    prophecy = {}
+    if now >= 1:
+        now_plain, now_mirror, future = _atbash(now)
+        prophecy["foretold"] = f"Atbash hides the future inside the present: your breath now, {now} ppm ({now_plain}), mirrors {future} ({now_mirror}), the air to come."
+        if future < 0.9 * now:
+            prophecy["counsel"] = "The mirror shows lighter air coming: let it come, and do nothing to stop it."
+        elif future > 1.1 * now:
+            prophecy["counsel"] = f"The mirror shows heavier air coming. {airing(outdoor_pm25)}"
+        else:
+            prophecy["counsel"] = "The mirror shows the air as it is: change nothing."
+        prophecy["revealed"] = f"Folded twice, every number comes home: {now_mirror} folds back into {now_plain}, as Sheshach did into Babel. Atbash is its own undoing."
     return {
         "id": "temurah",
         "title": "Atbash",
@@ -696,6 +1010,7 @@ def temurah(co2, means: dict | None = None):
         "mirror": mirror,
         "value": value,
         "word": word,
+        "prophecy": prophecy,
     }
 
 
@@ -773,6 +1088,22 @@ def coincidences(co2, others: dict | None = None):
         body = (
             f"Your numbers had {comparisons} chances to be sacred, and took none. This, too, is not a coincidence."
         )
+    prophecy = {}
+    here, pace = _latest(co2), _rate(co2)
+    if abs(pace) >= STILL:
+        ahead = [(s, what) for s, what in numbers.items() if (s - here) * pace > 0]
+        ahead += [(26 * k, f"{k} × 26, the Name {k} times over") for k in range(4, 200) if (26 * k - here) * pace > 0 and 26 * k not in numbers]
+        if ahead:
+            sacred, what = min(ahead, key=lambda a: abs(a[0] - here))
+            when = co2[-1][0] + (sacred - here) / pace
+            prophecy["foretold"] = f"At its present pace your CO₂ will pass {sacred} ppm, {what}, {_when(when, co2[-1][0])}."
+            prophecy["counsel"] = f"Be in the room {_when(when, co2[-1][0])}, and mark it: nothing is a coincidence."
+    else:
+        prophecy["foretold"] = "Your CO₂ stands still: the next sacred number must come to it."
+    if matches:
+        counted = Counter(s for _, _, _, _, s, _ in matches)
+        sacred, k = counted.most_common(1)[0]
+        prophecy["revealed"] = f"The number your household keeps returning to is {sacred}, {numbers[sacred]}: {k} of its numbers are it, or hide it."
     return {
         "id": "coincidences",
         "title": "Nothing is a coincidence",
@@ -781,6 +1112,7 @@ def coincidences(co2, others: dict | None = None):
         "coincidences": shown,
         "comparisons": comparisons,
         "matches": len(matches),
+        "prophecy": prophecy,
     }
 
 
@@ -798,10 +1130,10 @@ def analyze(series: dict[str, list[tuple[float, float]]], end: float, outdoor_pm
     means = {key: statistics.fmean(v for _, v in points) for key, points in present.items()}
     findings = [
         tree_of_life(co2, others, outdoor_pm25),
-        gematria_reading(co2, means),
-        temurah(co2, means),
+        gematria_reading(co2, means, outdoor_pm25),
+        temurah(co2, means, outdoor_pm25),
         week_of_creation(co2, end, present),
-        vessels(present),
+        vessels(present, outdoor_pm25),
         llull(present),
         coincidences(co2, others),
     ]

@@ -2,7 +2,6 @@ Don't record universally constant channels
 
 Online DB
 CLI endpoint
-Provenance and references for the occult analysis
 
 Calibrate the CO2 meter
 Map the CO2 meter's altitude correction at 1000, 2000 and 3000 m (../archive/zytemp-channels.md)
@@ -46,7 +45,10 @@ Measure the living room's air changes properly: leave it empty for an hour and f
 to 0.9 changes an hour on 2026-10-17 but fails when people come and go. A real figure would make
 the souls count less of a guess, and needs no airing.
 
-More pseudoscience, not tried yet: a tarot spread whose "future" card is drawn from an honest
-one-hour CO2 forecast; each sensor's ruling planet, from its mean z-score in each planetary hour;
-apparitions, as jumps over three standard deviations, logged as ghost sightings; a log of the
-hexagram of every hour, to find the household's favourite.
+More pseudoscience, not tried yet: apparitions, as jumps over three standard deviations, logged as
+ghost sightings; a log of the hexagram of every hour, to find the household's favourite, and to
+score the I Ching's changing lines against the hours that followed.
+
+The council of seers (../prophecy.md) is tried once, over the last sixth of the window. Rolling it
+back over many past horizons would give each seer a steadier record, and weights that change less
+from one refresh to the next.

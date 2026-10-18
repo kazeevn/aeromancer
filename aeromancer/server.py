@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlsplit
 
-from . import astro, filter_health, kabbalah, nea, oracle, tokens, weather
+from . import astro, filter_health, kabbalah, nea, oracle, prophecy, tokens, weather
 from .device import Reading
 from .recorder import RecorderStatus
 from .store import Store, is_meter
@@ -83,9 +83,9 @@ def outdoor_pm25_now(store: Store, region: str | None) -> float | None:
     return row[1] if row and time.time() - row[0] < OUTDOOR_FRESH else None
 
 
-def run_oracle(store: Store, range_text: str, outdoor_region: str | None = None, home=None) -> dict:
+def _household(store: Store, range_text: str, outdoor_region: str | None, home) -> dict:
+    """What the Oracle and the council of seers read: the window's series, under the Oracle's names."""
     start, end, bucket, points = _divination_window(store, range_text)
-    signals = {name: p for name in store.signal_names() if (p := points(name))}
     others = {q: points(q) for q in ORACLE_QUANTITIES}
     regions = {r: points(nea.PREFIX + r) for r in nea.REGIONS}
     if outdoor_region:
@@ -95,26 +95,36 @@ def run_oracle(store: Store, range_text: str, outdoor_region: str | None = None,
     # One reading each, unaveraged: wind is paired by time and rain is summed, and degrees do not average.
     for kind in ("wind_speed", "wind_direction", "rain"):
         others["outdoor_" + kind] = _points(weather.home_series(store, home, kind, start, end, 1))
+    return {
+        "co2": points("co2"),
+        "start": start,
+        "end": end,
+        "others": {q: p for q, p in others.items() if p},
+        "regions": {r: p for r, p in regions.items() if p},
+        "placements": store.placements(),
+        "home": home,
+        "outdoor_pm25": outdoor_pm25_now(store, outdoor_region),
+        "points": points,
+    }
+
+
+def run_oracle(store: Store, range_text: str, outdoor_region: str | None = None, home=None) -> dict:
+    household = _household(store, range_text, outdoor_region, home)
+    points, end = household.pop("points"), household["end"]
+    signals = {name: p for name in store.signal_names() if (p := points(name))}
     born = {member: ts for member, pattern in BIRTHS.items() if (ts := store.first_ts(pattern)) is not None}
     # The I Ching's casters over the day before the hour, whatever the window.
     day = end - astro.DAY
     recent = {q: _points(store.series(q, day, end, 300)) for q in ("co2", "temperature", "blueair_pm25", "blueair_temperature")}
     recent["outdoor_pm25"] = _points(store.series(nea.PREFIX + outdoor_region, day, end, 300)) if outdoor_region else []
     recent["outdoor_wind_speed"] = _points(weather.home_series(store, home, "wind_speed", day, end, 300))
-    return oracle.analyze(
-        points("co2"),
-        points("temperature"),
-        start,
-        end,
-        signals,
-        others={q: p for q, p in others.items() if p},
-        regions={r: p for r, p in regions.items() if p},
-        placements=store.placements(),
-        born=born,
-        home=home,
-        recent=recent,
-        outdoor_pm25=outdoor_pm25_now(store, outdoor_region),
-    )
+    return oracle.analyze(temperature=points("temperature"), signals=signals, born=born, recent=recent, **household)
+
+
+def run_prophecy(store: Store, range_text: str, outdoor_region: str | None = None, home=None) -> dict:
+    household = _household(store, range_text, outdoor_region, home)
+    del household["points"]
+    return prophecy.analyze(**household)
 
 
 def run_kabbalah(store: Store, range_text: str, outdoor_region: str | None = None, home=None) -> dict:
@@ -168,6 +178,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/series": self.series,
             "/api/oracle": self.oracle,
             "/api/kabbalah": self.kabbalah,
+            "/api/prophecy": self.prophecy,
             "/api/filter": self.filter,
             "/api/placements": self.placements,
         }.get(url.path)
@@ -321,6 +332,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def kabbalah(self, store: Store, query):
         return run_kabbalah(store, query.get("range", "24h"), self.server.outdoor_region, self.server.home)
+
+    def prophecy(self, store: Store, query):
+        return run_prophecy(store, query.get("range", "24h"), self.server.outdoor_region, self.server.home)
 
     def filter(self, store: Store, query):
         return filter_health.status(store, self.server.filter_settings)

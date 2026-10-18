@@ -1,4 +1,4 @@
-"""Command line: ``python -m aeromancer {run,record,blueair,nea,pressure,health,health-login,serve,host,token,place,placements,unplace,oracle,kabbalah,simulate}``."""
+"""Command line: ``python -m aeromancer {run,record,blueair,nea,pressure,health,health-login,serve,host,token,place,placements,unplace,oracle,kabbalah,prophecy,simulate}``."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from . import blueair, filter_health, health, nea, pressure, push, server, tokens, weather
+from . import blueair, filter_health, health, nea, oracle, pressure, push, server, tokens, weather
 from .device import Reading
 from .recorder import record, start_in_background
 from .store import DEVICES, Placement, Store, default_path
@@ -320,12 +320,48 @@ def print_findings(result):
             print(textwrap.fill(s["reading"], 78, initial_indent="       ", subsequent_indent="       "))
         for c in f.get("coincidences", []):
             print(textwrap.fill(c["text"], 78, initial_indent="  • ", subsequent_indent="    "))
+        print_prophecy(f.get("prophecy") or {})
         print(f"  \033[2mCertainty: {f['certainty']}\033[0m")
     print(f"\n\033[2m{result['disclaimer']}\033[0m")
 
 
+PROPHECY_LINES = (("foretold", "Foretold"), ("counsel", "Counsel"), ("revealed", "Revealed"))
+
+
+def print_prophecy(prophecy: dict, indent: str = "  "):
+    italic, plain = "\033[3m", "\033[0m"
+    for key, label in PROPHECY_LINES:
+        if prophecy.get(key):
+            # The escape codes take characters but no room on the screen.
+            print(textwrap.fill(f"{italic}{label}:{plain} {prophecy[key]}", 78 + len(italic + plain), initial_indent=indent, subsequent_indent=indent + "  "))
+
+
 def cmd_oracle(args):
     print_findings(server.run_oracle(Store(args.db, readonly=True), args.range, home_region(args), home_position(args)))
+
+
+def cmd_prophecy(args):
+    result = server.run_prophecy(Store(args.db, readonly=True), args.range, home_region(args), home_position(args))
+    if result["councils"]:
+        print(f"\n\033[1m{result['title']}: {result['headline']}\033[0m")
+        if result["spread"]:
+            print("  " + " · ".join(f"{c['position']}: {c['numeral']} {c['name']}" for c in result["spread"]))
+        print_prophecy(result["prophecy"])
+        print(f"  \033[2mCertainty: {result['certainty']}\033[0m")
+    for c in result["councils"]:
+        skeptic = c["skeptic"]["error"]
+        print(f"\n\033[1mThe council on {c['name']}\033[0m, {c['unit']}, for the next {oracle._duration(c['horizon'])}")
+        print(f"  {'seer':<28} {'foresees':>9} {'error':>7} {'skill':>7} {'weight':>7}")
+        for s in c["seers"]:
+            foresees = f"{s['forecast'][-1][1]:.0f}" if s["forecast"] else "–"
+            error = f"{s['error']:.0f}" if s["error"] is not None else "untried"
+            skill = f"{s['skill']:+.0%}" if s["skill"] is not None else ""
+            print(f"  {s['name']:<28} {foresees:>9} {error:>7} {skill:>7} {s['weight']:>7.0%}")
+        council_error = f"{c['error']:.0f}" if c["error"] is not None else "–"
+        print(f"  {'The council':<28} {c['forecast'][-1][1]:>9.0f} {council_error:>7}")
+        if skeptic is not None:
+            print(f"  {'The Skeptic (no change)':<28} {c['skeptic']['value']:>9.0f} {skeptic:>7.0f}")
+    print(f"\n\033[2m{result['disclaimer']}\033[0m")
 
 
 def cmd_kabbalah(args):
@@ -521,6 +557,11 @@ def main(argv=None):
     p.add_argument("--range", default="24h", help="e.g. 90m, 24h, 7d, all")
     outdoor(p)
     p.set_defaults(func=cmd_kabbalah)
+
+    p = sub.add_parser("prophecy", help="print the council of seers and their unified prophecy")
+    p.add_argument("--range", default="24h", help="e.g. 90m, 24h, 7d, all")
+    outdoor(p)
+    p.set_defaults(func=cmd_prophecy)
 
     p = sub.add_parser("simulate", help="fill a database with synthetic data")
     p.add_argument("--days", type=float, default=7)

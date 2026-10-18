@@ -8,6 +8,7 @@ python3 -m aeromancer record         # record only
 python3 -m aeromancer serve          # dashboard only (reads the same database)
 python3 -m aeromancer oracle --range 7d   # the analysis, in the terminal
 python3 -m aeromancer kabbalah --range 7d # the Tree of Life, in the terminal
+python3 -m aeromancer prophecy --range 7d # the council of seers and its prophecy
 ```
 
 `run` and `serve` listen on localhost only; add `--public` to serve the

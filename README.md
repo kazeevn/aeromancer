@@ -44,7 +44,10 @@ python3 -m aeromancer --db /tmp/demo.sqlite3 serve
   Pixel Watch's heart rate, sleep and SpO₂
 - [The dashboard](docs/dashboard.md)
 - [The Oracle](docs/oracle.md) and [the Tree of Life](docs/kabbalah.md): the
-  analyses, and what each one actually computes
+  analyses, what each one actually computes and foretells, and where the
+  methods come from
+- [The Prophecy](docs/prophecy.md): the methods as a council of seers, each
+  trusted as far as it foresaw, and their unified prophecy
 - [Ideas](docs/ideas/ideas.md) not tried yet, and [past studies](docs/archive/)
 
 ## Tests

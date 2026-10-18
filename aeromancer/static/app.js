@@ -9,6 +9,7 @@ const state = {
   series: null,
   oracle: null,
   kabbalah: null,
+  prophecy: null,
   latest: null,
   filter: null,
 };
@@ -128,9 +129,11 @@ function timeTicks(start, end, count) {
 /**
  * Panels stacked on one time axis, one unit per panel.
  * panel: { title, height, series, keys, tick, format, minPad, floor, refs, ticks }
- * series: { label, name, color, rows: [ts, mean, min, max][], band, interval, area }
+ * series: { label, name, color, rows: [ts, mean, min, max][], band, interval, area, dash, width, faint, quiet, key }
  *   area: filled down to the axis, behind the lines that follow it
- * opts: { retrograde, lunations, moves, describe }
+ *   dash, width, faint: a dashed, thinner or fainter line; quiet: left out of the tooltip and the end labels;
+ *   key: marks its line as data-key, for a legend or table to light it up
+ * opts: { window: { start, end, bucket } (default: the charts' range), retrograde, lunations, moves, marks: [{ ts, label }], describe }
  */
 function stackedChart(container, panels, opts) {
   container.replaceChildren();
@@ -152,7 +155,7 @@ function stackedChart(container, panels, opts) {
   const pw = W - m.left - m.right;
   const plotTop = layout[0].top;
   const plotBottom = layout.at(-1).top + layout.at(-1).height;
-  const { start, end, bucket } = state.series;
+  const { start, end, bucket } = opts.window || state.series;
   const x = t => m.left + ((t - start) / (end - start)) * pw;
   // Break a line where its source was not running.
   const gapOf = s => Math.max(bucket * 3, 120, (s.interval || 0) * 2.5);
@@ -235,8 +238,15 @@ function stackedChart(container, panels, opts) {
       }
       for (const g of segments) {
         const d = g.map((r, i) => `${i ? "L" : "M"}${x(r[0]).toFixed(1)},${y(r[1]).toFixed(1)}`).join("");
-        svg("path", { d: g.length > 1 ? d : `${d}h0.1`, fill: "none", stroke: s.color, "stroke-width": s.area ? 1 : 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, marks);
+        const line = svg("path", {
+          d: g.length > 1 ? d : `${d}h0.1`, fill: "none", stroke: s.color, "stroke-width": s.width ?? (s.area ? 1 : 2),
+          "stroke-linejoin": "round", "stroke-linecap": "round",
+        }, marks);
+        if (s.dash) line.setAttribute("stroke-dasharray", "5 4");
+        if (s.faint) line.setAttribute("stroke-opacity", s.faint);
+        if (s.key) line.dataset.key = s.key;
       }
+      if (s.quiet) continue;
       const last = s.rows.at(-1);
       svg("circle", { cx: x(last[0]), cy: y(last[1]), r: 4, fill: s.color, stroke: "var(--surface-1)", "stroke-width": 2 }, labels);
       ends.push({ x: x(last[0]), y: y(last[1]), text: p.tick(last[1]) });
@@ -266,10 +276,16 @@ function stackedChart(container, panels, opts) {
     const c = svg("circle", { cx: x(t), cy: 9, r: 4.5, class: `moon-mark ${kind}` }, root);
     svg("title", {}, c).textContent = `${kind === "full" ? "Full" : "New"} moon, ${fmtFull.format(new Date(t * 1000))}`;
   }
+  for (const mark of opts.marks || []) {
+    const g = svg("g", { class: "mark-line" }, root);
+    const xx = Math.round(x(mark.ts)) + 0.5;
+    svg("line", { x1: xx, x2: xx, y1: plotTop - 4, y2: plotBottom }, g);
+    svg("text", { x: xx, y: plotTop - 8, "text-anchor": "middle" }, g).textContent = mark.label;
+  }
 
   // Hover & keyboard layer: one crosshair through every panel, one tooltip for every series.
   const cross = svg("line", { class: "crosshair", y1: plotTop, y2: plotBottom, visibility: "hidden" }, root);
-  const tracked = layout.flatMap(p => (p.y ? p.series.filter(s => s.rows.length) : []).map(s => ({
+  const tracked = layout.flatMap(p => (p.y ? p.series.filter(s => s.rows.length && !s.quiet) : []).map(s => ({
     p, s,
     times: s.rows.map(r => r[0]),
     dot: svg("circle", { r: 4.5, fill: s.color, stroke: "var(--surface-1)", "stroke-width": 2, visibility: "hidden", "pointer-events": "none" }, root),
@@ -551,6 +567,20 @@ function duration(seconds) {
 
 function headline(f) {
   return html("p", { class: "headline" }, null, f.headline);
+}
+
+const PROPHECY_LINES = [["foretold", "Foretold"], ["counsel", "Counsel"], ["revealed", "Revealed"]];
+
+// What a method foresees from its reading, what it advises, and what it reveals (docs/oracle.md#prophecies).
+function prophecyLines(parent, prophecy) {
+  const lines = PROPHECY_LINES.filter(([key]) => prophecy?.[key]);
+  if (!lines.length) return;
+  const list = html("dl", { class: "prophecy-lines" }, parent);
+  for (const [key, label] of lines) {
+    const row = html("div", { class: `line ${key}` }, list);
+    html("dt", {}, row, label);
+    withHebrew(html("dd", {}, row), prophecy[key]);
+  }
 }
 
 function bodyText(card, f) {
@@ -1546,6 +1576,7 @@ function oracleCard(grid, f, span) {
   const header = html("header", { class: "card-top" }, card);
   html("h3", {}, header, f.title);
   (FIGURES[f.id] || plainFigure)(card, f, header);
+  prophecyLines(f.id === "clock" ? card.querySelector(".clock-side") : card, f.prophecy);
   html("p", { class: "certainty" }, card, f.certainty);
 }
 
@@ -1553,6 +1584,11 @@ function oracleCard(grid, f, span) {
 function renderOmens(byId) {
   const bar = document.getElementById("omens");
   bar.replaceChildren();
+  if (state.prophecy?.headline) {
+    const a = html("a", { href: "#prophecy", title: "The unified prophecy" }, bar);
+    html("span", { class: "glyph", "aria-hidden": "true" }, a, "✶");
+    a.append(state.prophecy.headline);
+  }
   const omens = [
     ["iching", f => ["", f.name]],
     ["clock", f => [f.hours.find(h => h.ruler === f.ruler).glyph, f.headline]],
@@ -1693,7 +1729,7 @@ function renderKabbalah() {
   document.getElementById("kabbalah-disclaimer").textContent = state.kabbalah.disclaimer;
 
   for (const f of state.kabbalah.findings) {
-    const card = html("article", { class: `oracle-card ${["tree", "llull", "coincidences"].includes(f.id) ? "wide" : ""}` }, grid);
+    const card = html("article", { class: `oracle-card ${["tree", "llull", "coincidences"].includes(f.id) ? "wide" : ""}`, id: `omen-${f.id}` }, grid);
     let text = card;
     if (f.id === "tree") {
       const layout = html("div", { class: "tree-layout" }, card);
@@ -1776,7 +1812,137 @@ function renderKabbalah() {
       html("p", { class: "tree-note" }, card, "Share of the time each vessel lay broken; bold ones are broken now.");
     }
 
+    prophecyLines(text, f.prophecy);
     html("p", { class: "certainty" }, text, f.certainty);
+  }
+}
+
+// ---------- the Prophecy ----------
+
+// Past, present and future, as three cards of the Major Arcana dealt by the numbers.
+function spreadFigure(spread) {
+  const row = html("div", { class: "spread", role: "list", "aria-label": "The spread: past, present and future" });
+  for (const c of spread) {
+    const card = html("div", { class: "tarot", role: "listitem" }, row);
+    html("span", { class: "position" }, card, c.position);
+    html("span", { class: "arcanum", "aria-hidden": "true" }, card, c.numeral);
+    html("span", { class: "name" }, card, c.name);
+    html("span", { class: "meaning" }, card, c.meaning);
+    html("span", { class: "why" }, card, c.why);
+  }
+  return row;
+}
+
+// One panel a council: what happened, what each seer and the council would have said a horizon ago (dashed) and
+// say now (solid), the spread among the seers, and the Skeptic, who expects no change.
+function councilPanel(c) {
+  const flat = rows => rows.map(([t, v]) => [t, v, v, v]);
+  const fmt = v => `${fmtInt.format(v)} ${c.unit}`;
+  const seers = c.seers.filter(s => s.weight > 0);
+  const muted = "var(--text-muted)", accent = "var(--oracle-accent)";
+  return {
+    title: `${capitalize(c.name)}, ${c.unit}`, height: 170, minPad: c.target === "co2" ? 40 : 3, floor: 0, tick: v => fmtInt.format(v), format: fmt,
+    refs: c.target === "co2" ? [{ value: 1000, label: "1000 ppm" }] : [{ value: 35, label: "35 µg/m³" }],
+    series: [
+      ...seers.flatMap(s => [
+        { key: s.id, label: s.name, color: muted, rows: flat(s.hindcast), width: 1, dash: true, faint: 0.55, quiet: true },
+        { key: s.id, label: s.name, color: muted, rows: flat(s.forecast), width: 1, faint: 0.55, quiet: true },
+      ]),
+      { label: "The Skeptic, then", color: muted, rows: flat([[c.origin, c.skeptic.value], [c.now, c.skeptic.value]]), width: 1.5, dash: true },
+      { label: "The Skeptic, now", color: muted, rows: flat([[c.now, c.here], [c.now + c.horizon, c.here]]), width: 1.5, dash: true },
+      { label: "What happened", color: "var(--text-primary)", rows: flat(c.actual), interval: c.target === "co2" ? 0 : 3600 },
+      { label: "The council, then", color: accent, rows: c.hindcast, dash: true },
+      { label: "The council", color: accent, rows: c.forecast, band: true },
+    ],
+  };
+}
+
+function councilTable(c) {
+  const table = html("table", { class: "council-table" });
+  html("caption", {}, table, `${capitalize(c.name)}, ${c.unit}, ${duration(c.horizon)} ahead`);
+  const head = html("tr", {}, html("thead", {}, table));
+  for (const [label, cls] of [["Seer", ""], ["Foresees", "num"], ["Off by", "num"], ["On the Skeptic", "num"], ["Weight", "weight"]]) {
+    html("th", { scope: "col", class: cls }, head, label);
+  }
+  const body = html("tbody", {}, table);
+  const most = Math.max(...c.seers.map(s => s.weight));
+  for (const s of c.seers) {
+    const row = html("tr", { "data-key": s.id, class: s.weight > 0 ? "" : "silent", tabindex: s.weight > 0 ? 0 : -1 }, body);
+    const who = html("td", {}, row);
+    html("a", { href: `#omen-${s.id}` }, who, s.name);
+    html("small", {}, who, s.tradition);
+    html("td", { class: "num" }, row, s.forecast.length ? fmtInt.format(s.forecast.at(-1)[1]) : "–");
+    html("td", { class: "num" }, row, s.error === null ? "untried" : fmtInt.format(s.error));
+    html("td", { class: "num" }, row, s.skill === null ? "" : `${s.skill >= 0 ? "+" : "−"}${Math.round(Math.abs(s.skill) * 100)}%`);
+    const weight = html("td", { class: "weight" }, row);
+    const track = html("span", { class: "track" }, weight);
+    if (s.weight > 0) html("span", { class: "bar", style: `width:${((s.weight / most) * 100).toFixed(1)}%` }, track);
+    weight.append(`${Math.round(s.weight * 100)}%`);
+  }
+  const foot = html("tfoot", {}, table);
+  for (const [name, foresees, error] of [["The council", c.forecast.at(-1)[1], c.error], ["The Skeptic, who expects no change", c.here, c.skeptic.error]]) {
+    const row = html("tr", {}, foot);
+    html("th", { scope: "row" }, row, name);
+    html("td", { class: "num" }, row, fmtInt.format(foresees));
+    html("td", { class: "num" }, row, error === null ? "–" : fmtInt.format(error));
+    html("td", {}, row);
+    html("td", {}, row);
+  }
+  return table;
+}
+
+function renderProphecy() {
+  const root = document.getElementById("prophecy-body");
+  root.replaceChildren();
+  const p = state.prophecy;
+  if (!p) return;
+  document.getElementById("prophecy-disclaimer").textContent = p.disclaimer;
+  if (!p.councils.length) return;
+  const grid = html("div", { class: "oracle-grid" }, root);
+
+  const unified = html("article", { class: "oracle-card wide unified" }, grid);
+  html("h3", {}, unified, p.title);
+  if (p.spread.length) unified.append(spreadFigure(p.spread));
+  html("p", { class: "headline" }, unified, p.headline);
+  prophecyLines(unified, p.prophecy);
+  html("p", { class: "certainty" }, unified, p.certainty);
+
+  const council = html("article", { class: "oracle-card wide council" }, grid);
+  html("h3", {}, council, "The council of seers");
+  const chart = html("div", { class: "chart council-chart" }, council);
+  const [first] = p.councils;
+  const panels = p.councils.map(councilPanel);
+  stackedChart(chart, panels, {
+    window: { start: first.origin - first.horizon, end: first.now + first.horizon, bucket: first.horizon / 24 },
+    marks: [{ ts: first.origin, label: "asked" }, { ts: first.now, label: "now" }],
+    describe: `The council's prophecy: ${p.headline}. Use arrow keys to inspect.`,
+  });
+  legendRow(council, [
+    { key: "line", color: "var(--text-primary)", label: "what happened" },
+    { key: "line", color: "var(--oracle-accent)", label: "the council" },
+    { key: "dash", color: "var(--oracle-accent)", label: "what it would have said" },
+    { key: "swatch", color: "color-mix(in srgb, var(--oracle-accent) 14%, transparent)", label: "the seers' spread" },
+    { key: "line", color: "var(--text-muted)", label: "each seer" },
+    { key: "line", color: "var(--earth)", label: "the seer you point at" },
+    { key: "dash", color: "var(--text-muted)", label: "the Skeptic" },
+  ]);
+  const tables = html("div", { class: "council-tables" }, council);
+  for (const c of p.councils) tables.append(councilTable(c));
+  html("p", { class: "tree-note" }, council,
+    `Each seer was asked what it would have foreseen ${duration(first.horizon)} before now, with only what it knew then, and is weighed inversely to its squared error (Bates and Granger, 1969). ` +
+    "Off by is its mean error then; on the Skeptic, how much less its squared error was than that of expecting no change. Hover a seer to see its lines.");
+  // A seer's row lights up its lines.
+  const svgRoot = chart.querySelector("svg");
+  if (!svgRoot) return;
+  for (const row of tables.querySelectorAll("tr[data-key]:not(.silent)")) {
+    const light = on => {
+      svgRoot.classList.toggle("focused", on);
+      for (const line of svgRoot.querySelectorAll(`path[data-key="${row.dataset.key}"]`)) line.classList.toggle("on", on);
+    };
+    row.addEventListener("pointerenter", () => light(true));
+    row.addEventListener("pointerleave", () => light(false));
+    row.addEventListener("focus", () => light(true));
+    row.addEventListener("blur", () => light(false));
   }
 }
 
@@ -1799,20 +1965,22 @@ async function refresh({ rangeChanged = false } = {}) {
   const r = encodeURIComponent(state.range);
   const divine = rangeChanged || Date.now() - oracleFetched >= ORACLE_REFRESH_MS;
   try {
-    const [latest, series, oracle, kabbalah, filter] = await Promise.all([
+    const [latest, series, oracle, kabbalah, prophecy, filter] = await Promise.all([
       getJSON("api/latest"),
       getJSON(`api/series?range=${r}`),
       divine ? getJSON(`api/oracle?range=${r}`) : null,
       divine ? getJSON(`api/kabbalah?range=${r}`) : null,
+      divine ? getJSON(`api/prophecy?range=${r}`) : null,
       divine ? getJSON("api/filter") : null,
     ]);
     Object.assign(state, { latest, series });
     renderTiles();
     renderCharts();
     if (oracle) {
-      Object.assign(state, { oracle, kabbalah, filter });
+      Object.assign(state, { oracle, kabbalah, prophecy, filter });
       renderFilter();
       oracleFetched = Date.now();
+      renderProphecy();
       renderOracle();
       renderKabbalah();
       if (!oracleRendered) scrollToHash();
@@ -1838,10 +2006,17 @@ for (const button of document.querySelectorAll(".ranges button")) {
   });
 }
 
-let resizeFrame = 0;
+let resizeFrame = 0, drawnWidth = 0;
 new ResizeObserver(() => {
   cancelAnimationFrame(resizeFrame);
-  resizeFrame = requestAnimationFrame(renderCharts);
+  resizeFrame = requestAnimationFrame(() => {
+    renderCharts();
+    const width = document.querySelector("main").clientWidth;
+    if (width !== drawnWidth) {  // the council's chart is drawn to its width too, but nothing else moves it
+      drawnWidth = width;
+      renderProphecy();
+    }
+  });
 }).observe(document.querySelector("main"));
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderCharts);
 

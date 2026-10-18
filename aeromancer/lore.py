@@ -116,8 +116,9 @@ MAJOR_PROFILE = (6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.2
 MINOR_PROFILE = (6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17)
 
 # The seven diatonic modes, brightest first, as Persichetti ranked them (Twentieth-Century Harmony, 1961):
-# each is the one before with one note lowered. Their names are Glarean's (Dodecachordon, 1547), borrowed
-# from Greek modes that were other scales; the ethos is half the Greeks' and half the centuries since.
+# each is the one before with one note lowered. Their names are mostly Glarean's (Dodecachordon, 1547), borrowed
+# from Greek modes that were other scales; Locrian is a later name for the mode he set aside. The ethos is half
+# the Greeks' and half the centuries since.
 MODES = (
     ("Lydian", (0, 2, 4, 6, 7, 9, 11), "Its raised fourth floats: the sound of wonder, which Plato banished from his Republic as soft and fit for drinking parties."),
     ("Ionian", (0, 2, 4, 5, 7, 9, 11), "Our major scale, which older theorists called the modus lascivus, too cheerful for church."),
@@ -125,7 +126,7 @@ MODES = (
     ("Dorian", (0, 2, 3, 5, 7, 9, 10), "Minor with a raised sixth that leaves a door ajar; Plato kept the Dorian for the brave."),
     ("Aeolian", (0, 2, 3, 5, 7, 8, 10), "The natural minor, which Glarean added in 1547: sorrow, but orderly."),
     ("Phrygian", (0, 1, 3, 5, 7, 8, 10), "Its second sits a half step above the tonic: the sigh of flamenco and of the Spanish lament."),
-    ("Locrian", (0, 1, 3, 5, 6, 8, 10), "Its fifth is diminished, so its home chord will not stand. Glarean named it only to set it aside as unusable."),
+    ("Locrian", (0, 1, 3, 5, 6, 8, 10), "Its fifth is diminished, so its home chord will not stand. Glarean called it hyperaeolian, and set it aside as unusable."),
 )
 # Tempo markings, by the beats a minute below which they apply on Maelzel's metronome (1815).
 TEMPI = ((56, "Largo", "broadly"), (66, "Adagio", "at ease"), (78, "Andante", "at a walking pace"), (float("inf"), "Moderato", "moderately"))
