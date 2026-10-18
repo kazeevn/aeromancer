@@ -373,7 +373,7 @@ function renderCharts() {
       title: "CO₂, ppm", height: 190, minPad: 40, ...int, format: v => `${fmtInt.format(v)} ppm`,
       // In haze, airing trades CO₂ for particles, so the advice changes with the outdoor air.
       refs: [{ value: 1000, label: state.latest?.hazy ? "1000 ppm · haze: thin the crowd" : "1000 ppm · open a window" }],
-      series: [meter("CO₂ zyTemp", s.co2), blueair("CO₂ Blueair", s.blueair_co2)],
+      series: [meter("CO₂ zyTemp", s.co2)],
     },
     {
       title: "Particles, µg/m³", height: 180, ticks: 5, minPad: 2, floor: 0, keys: true, ...int, format: v => `${fmtInt.format(v)} µg/m³`,
@@ -1629,7 +1629,7 @@ function renderKabbalah() {
     let text = card;
     if (f.id === "tree") {
       const layout = html("div", { class: "tree-layout" }, card);
-      layout.append(treeSvg(f, state.kabbalah.instruments.filter(i => i.key !== state.kabbalah.breath)));
+      layout.append(treeSvg(f, state.kabbalah.instruments.filter(i => i.key !== "co2")));
       text = html("div", { class: "tree-text" }, layout);
     }
     html("h3", {}, text, f.title);

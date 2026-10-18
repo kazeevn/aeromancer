@@ -123,7 +123,7 @@ class FindingsTest(unittest.TestCase):
         self.assertAlmostEqual(v["exile_share"], 4 / 6)
         self.assertEqual(v["longest"], 180)
         pm = [(START + i * 60, v) for i, v in enumerate([10, 20, 10, 10])]
-        f = kabbalah.vessels({"co2": co2, "blueair_pm25": pm, "temperature": pm})  # temperature has no vessel
+        f = kabbalah.vessels({"co2": co2, "blueair_pm25": pm, "temperature": pm, "blueair_co2": co2})  # neither of the last two has a vessel
         self.assertEqual([(r["key"], r["sefira"]) for r in f["vessels"]], [("co2", "Chesed"), ("blueair_pm25", "Tiferet")])
         self.assertEqual((f["shattered"], f["mended"]), (3, 2))
 
@@ -140,7 +140,6 @@ class AllInstrumentsTest(unittest.TestCase):
     def test_every_finding_uses_them(self):
         series = room_with_everything()
         result = kabbalah.analyze(series, series["co2"][-1][0])
-        self.assertEqual(result["breath"], "co2")
         self.assertEqual([i["key"] for i in result["instruments"]], list(kabbalah.INSTRUMENTS))
         by_id = {f["id"]: f for f in result["findings"]}
         self.assertIn("walks closest in its footsteps", by_id["tree"]["body"])
@@ -155,12 +154,11 @@ class AllInstrumentsTest(unittest.TestCase):
         self.assertGreater(by_id["coincidences"]["comparisons"], kabbalah.coincidences(series["co2"])["comparisons"])
         self.assertTrue(facts)
 
-    def test_blueair_estimate_stands_in_for_a_silent_zytemp(self):
+    def test_the_blueair_estimate_does_not_stand_in_for_a_silent_zytemp(self):
         series = room_with_everything()
         series["blueair_co2"], series["co2"] = series["co2"], []
         result = kabbalah.analyze(series, series["blueair_co2"][-1][0])
-        self.assertEqual(result["breath"], "blueair_co2")
-        self.assertIn("estimated CO\u2082", result["findings"][0]["body"])
+        self.assertEqual(result["findings"], [])
 
     def test_malkhut_heeds_the_haze(self):
         kingdom = [(START + i * 60, 1500.0) for i in range(30)]

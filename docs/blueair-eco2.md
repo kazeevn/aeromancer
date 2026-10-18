@@ -99,20 +99,41 @@ longer windows:
 
 So anything older than six weeks exists only in our own recording.
 
+## Side by side with the zyTemp
+
+On 2026-10-18 from 00:22 to 13:04, the zyTemp sat on the bedroom floor next to the purifier's air
+intake (see the placements table). Data: 148 five-minute `blueair_co2` readings from 00:30 to
+13:04, each paired with the mean of the zyTemp readings within ±2.5 minutes.
+
+| | zyTemp (CO2) | Blueair eCO2 |
+|---|---|---|
+| Range | 623–1162 ppm | 400–675 ppm |
+| Mean | 987 ppm | 441 ppm |
+| At exactly 400 ppm | — | 39% of readings |
+
+- **Far too low.** eCO2 was about 550 ppm below real CO2 on average. The room was stuffy, around
+  1000 ppm, all night, and eCO2 never showed it.
+- **Doesn't follow real CO2.** Pearson r = 0.27 and Spearman ρ = 0.26. The 5-minute changes
+  correlate at r = 0.09, against r = 0.87 with the Blueair's own VOC.
+- **Real CO2 peaked while eCO2 sat at the floor.** From 03:00 to 04:00 the zyTemp read
+  1121–1162 ppm while eCO2 read 400–404. When real CO2 was above 1050 ppm (n = 45), eCO2 averaged
+  459 ppm.
+- **VOC events still show.** At 11:00, VOC rose to 5117 and eCO2 to 675, while real CO2 stayed at
+  846–886 ppm.
+
+After this, the dashboard stopped showing `blueair_co2`; it is still recorded.
+
 ## Conclusion
 
 Treat `blueair_co2` as a smoothed VOC index, scaled to ppm and measured against a reference that
 drifts. It's good for spotting events like cooking, cleaning or people arriving. It can't measure
-ventilation, and it shouldn't be
-compared with the zyTemp as if both measured CO2. The two devices are currently in different
-rooms anyway.
+ventilation, and it shouldn't be compared with the zyTemp as if both measured CO2. Side by side,
+it missed a whole night of stuffy air.
 
 ## Open questions
 
 - What form does the eCO2 reference drift take, and how often does it reset? A step like the one
   at 18:17 should recur, maybe daily.
-- How does eCO2 follow real CO2 when both devices measure the same air? See the co-location
-  experiment in [ideas](ideas/ideas.md).
 - Gas cooking produces real CO2 *and* VOCs, so near a gas stove the two can rise together for
   reasons that have nothing to do with how eCO2 is calculated.
 

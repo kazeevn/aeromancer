@@ -35,12 +35,12 @@ class Instrument(NamedTuple):
 
 
 # Everything recorded, under the names the analysis gets it by. NEA's are the home region's PM2.5 and the
-# nearest weather station's; wind direction is left out, since an average of compass bearings means nothing.
+# nearest weather station's; wind direction is left out, since an average of compass bearings means nothing,
+# and so is the Blueair's CO2, which is an estimate from its VOC sensor (docs/blueair-eco2.md).
 INSTRUMENTS = {
     "co2": Instrument("zyTemp CO₂", "ppm", 0),
     "temperature": Instrument("zyTemp temperature", "°C", 1),
     "humidity": Instrument("zyTemp humidity", "%", 0),
-    "blueair_co2": Instrument("Blueair eCO₂", "ppm", 0),
     "blueair_pm1": Instrument("indoor PM1", "µg/m³", 0),
     "blueair_pm25": Instrument("indoor PM2.5", "µg/m³", 0),
     "blueair_pm10": Instrument("indoor PM10", "µg/m³", 0),
@@ -58,10 +58,10 @@ INSTRUMENTS = {
 }
 
 # The seven vessels, one per lower sefira, as in Luria's account of the seven that shattered:
-# quantity, limit at which it breaks (WHO 2021 24-hour guidelines for particles), sefira.
+# quantity, limit at which it breaks (WHO 2021 24-hour guidelines for particles; the choir's VOC comfort), sefira.
 VESSELS = (
     ("co2", STUFFY_PPM, "Chesed"),
-    ("blueair_co2", STUFFY_PPM, "Gevurah"),
+    ("blueair_voc", 300, "Gevurah"),
     ("blueair_pm25", 15, "Tiferet"),
     ("blueair_pm10", 45, "Netzach"),
     ("outdoor_pm25", 15, "Hod"),
@@ -787,15 +787,14 @@ def coincidences(co2, others: dict | None = None):
 def analyze(series: dict[str, list[tuple[float, float]]], end: float, outdoor_pm25: float | None = None) -> dict:
     """``series`` maps INSTRUMENTS keys to ``(ts, value)`` lists in time order; any may be missing or empty.
 
-    The tree walks on the zyTemp's CO2, or the Blueair's estimate when the zyTemp has none. ``outdoor_pm25``
-    is the latest outdoor PM2.5, if known, so the advice does not open windows into haze.
+    The tree walks on the zyTemp's CO2. ``outdoor_pm25`` is the latest outdoor PM2.5, if known, so the advice
+    does not open windows into haze.
     """
     present = {key: series[key] for key in INSTRUMENTS if series.get(key)}
-    breath = next((key for key in ("co2", "blueair_co2") if key in present), None)
-    if breath is None:
+    if "co2" not in present:
         return {"findings": [], "instruments": [], "disclaimer": "The Tree needs CO2 readings to bear fruit."}
-    co2 = present[breath]
-    others = {key: points for key, points in present.items() if key != breath}
+    co2 = present["co2"]
+    others = {key: points for key, points in present.items() if key != "co2"}
     means = {key: statistics.fmean(v for _, v in points) for key, points in present.items()}
     findings = [
         tree_of_life(co2, others, outdoor_pm25),
@@ -806,13 +805,10 @@ def analyze(series: dict[str, list[tuple[float, float]]], end: float, outdoor_pm
         llull(present),
         coincidences(co2, others),
     ]
-    if breath != "co2":
-        findings[0]["body"] += " The zyTemp is silent, so the tree walks on the Blueair's estimated CO₂ instead."
     for f in findings:
         f["certainty"] = _pick(CERTAINTIES, f["id"], f["headline"])
     return {
         "findings": findings,
         "instruments": [{"key": key, **INSTRUMENTS[key]._asdict()} for key in present],
-        "breath": breath,
         "disclaimer": "Strictly pseudo-mystical. The arithmetic is real; the emanations are not.",
     }
