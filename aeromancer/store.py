@@ -18,6 +18,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS readings (
     ts       REAL NOT NULL,  -- unix time, seconds
     quantity TEXT NOT NULL,  -- co2 | temperature | humidity | op_XX (undocumented codes) | blueair_<sensor> | nea_pm25_<region> | nea_<weather>_<station>
+             -- | synop_<field>_<WMO id> | metar_<field>_<ICAO id> | home_pressure[_msl]
     value    REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS readings_quantity_ts ON readings (quantity, ts);
@@ -28,11 +29,12 @@ CREATE TABLE IF NOT EXISTS placements (
     room   TEXT NOT NULL,
     spot   TEXT NOT NULL   -- free text: where in the room, height, what is nearby
 );
-CREATE TABLE IF NOT EXISTS stations (  -- outdoor weather stations, as nea_<kind>_<id> names them
+CREATE TABLE IF NOT EXISTS stations (  -- outdoor weather stations, as nea_<kind>_<id> and metar_<field>_<id> name them
     id        TEXT PRIMARY KEY,
     name      TEXT NOT NULL,
     latitude  REAL NOT NULL,
-    longitude REAL NOT NULL
+    longitude REAL NOT NULL,
+    elevation REAL  -- metres above mean sea level, where known
 );
 """
 
@@ -42,7 +44,7 @@ DEVICES = ("zytemp", "blueair")
 
 def device_of(quantity: str) -> str | None:
     """The device that measured ``quantity``; None for outdoor data, which has no placement."""
-    if quantity.startswith("nea_"):
+    if quantity.startswith(("nea_", "synop_", "metar_", "home_")):
         return None
     return "blueair" if quantity.startswith("blueair_") else "zytemp"
 
@@ -82,6 +84,8 @@ class Store:
         self.db = sqlite3.connect(path, timeout=10)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        if "elevation" not in {row[1] for row in self.db.execute("PRAGMA table_info(stations)")}:
+            self.db.execute("ALTER TABLE stations ADD COLUMN elevation REAL")  # added after the first version
 
     def close(self) -> None:
         self.db.close()
@@ -93,14 +97,21 @@ class Store:
                 ((r.ts, r.quantity, r.value) for r in readings),
             )
 
-    def add_stations(self, stations: Iterable[tuple[str, str, float, float]]) -> None:
-        """``(id, name, latitude, longitude)``, replacing what was known of each."""
+    def add_stations(self, stations: Iterable[tuple]) -> None:
+        """``(id, name, latitude, longitude[, elevation])``, replacing what was known of each."""
         with self.db:
-            self.db.executemany("INSERT OR REPLACE INTO stations (id, name, latitude, longitude) VALUES (?, ?, ?, ?)", stations)
+            self.db.executemany(
+                "INSERT OR REPLACE INTO stations (id, name, latitude, longitude, elevation) VALUES (?, ?, ?, ?, ?)",
+                ((*s, None)[:5] for s in stations),
+            )
 
     def stations(self) -> dict[str, tuple[float, float]]:
         """Each station's ``(latitude, longitude)``."""
         return {i: (lat, lon) for i, lat, lon in self.db.execute("SELECT id, latitude, longitude FROM stations")}
+
+    def elevations(self) -> dict[str, float]:
+        """Each station's elevation, of those whose elevation is known."""
+        return dict(self.db.execute("SELECT id, elevation FROM stations WHERE elevation IS NOT NULL"))
 
     def span(self) -> tuple[float, float] | None:
         first, last = self.db.execute("SELECT MIN(ts), MAX(ts) FROM readings").fetchone()
@@ -113,6 +124,21 @@ class Store:
     def first_ts(self, pattern: str) -> float | None:
         """Time of the oldest reading of any quantity matching the GLOB ``pattern``."""
         return self.db.execute("SELECT MIN(ts) FROM readings WHERE quantity GLOB ?", (pattern,)).fetchone()[0]
+
+    def rows(self, pattern: str, start: float, end: float) -> list[tuple[float, str, float]]:
+        """``(ts, quantity, value)`` of every reading of the quantities matching the GLOB ``pattern``, from ``start`` to ``end``."""
+        return self.db.execute(
+            "SELECT ts, quantity, value FROM readings WHERE quantity GLOB ? AND ts >= ? AND ts <= ? ORDER BY ts",
+            (pattern, start, end),
+        ).fetchall()
+
+    def replace(self, pattern: str, start: float, end: float, readings: Iterable[Reading]) -> None:
+        """Delete the readings of the quantities matching ``pattern`` from ``start`` to ``end``, and add ``readings``, at once."""
+        with self.db:
+            self.db.execute("DELETE FROM readings WHERE quantity GLOB ? AND ts >= ? AND ts <= ?", (pattern, start, end))
+            self.db.executemany(
+                "INSERT INTO readings (ts, quantity, value) VALUES (?, ?, ?)", ((r.ts, r.quantity, r.value) for r in readings)
+            )
 
     def count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM readings").fetchone()[0]

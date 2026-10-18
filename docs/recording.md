@@ -18,8 +18,9 @@ Readings go to `~/.local/share/aeromancer/readings.sqlite3` (override with
 `--db`), at most one per quantity every 5 s (`--min-interval`). The recorder
 survives the meter being unplugged and picks it up again.
 
-The purifier ([blueair.md](blueair.md)) and outdoor ([nea.md](nea.md))
-pollers start with `run` and `record` when their config files exist.
+The purifier ([blueair.md](blueair.md)) and outdoor ([nea.md](nea.md),
+[pressure.md](pressure.md)) pollers start with `run` and `record` when their
+config files exist.
 
 ## As a service
 

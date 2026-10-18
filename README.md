@@ -3,7 +3,7 @@
 Records the ZyAura / Holtek "USB-zyTemp" CO₂ meter (USB `04d9:a052`), stores
 the readings in SQLite, draws them on a local dashboard, and runs a
 strictly pseudo-scientific analysis of your air. Optionally it also records
-a Blueair purifier and Singapore's outdoor PM2.5 and weather.
+a Blueair purifier and Singapore's outdoor PM2.5, weather and air pressure.
 
 Pure Python standard library (3.11+): no packages to install, unless you
 also want the optional Blueair purifier poller.
@@ -37,6 +37,8 @@ python3 -m aeromancer --db /tmp/demo.sqlite3 serve
 - [Blueair purifier](docs/blueair.md): the optional purifier poller
 - [Outdoor PM2.5 and weather](docs/nea.md): the optional NEA poller
   (Singapore), and why this source
+- [Outdoor air pressure](docs/pressure.md): the airports' reports, and how
+  they are interpolated for home
 - [The dashboard](docs/dashboard.md)
 - [The Oracle](docs/oracle.md) and [the Tree of Life](docs/kabbalah.md): the
   analyses, and what each one actually computes

@@ -1,4 +1,4 @@
-"""Command line: ``python -m aeromancer {run,record,blueair,nea,serve,place,placements,unplace,oracle,kabbalah,simulate}``."""
+"""Command line: ``python -m aeromancer {run,record,blueair,nea,pressure,serve,place,placements,unplace,oracle,kabbalah,simulate}``."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from . import blueair, nea, server, weather
+from . import blueair, nea, pressure, server, weather
 from .device import Reading
 from .recorder import record, start_in_background
 from .store import DEVICES, Store, default_path
@@ -50,26 +50,36 @@ def home_position(args) -> tuple[float, float] | None:
         return None
 
 
-def start_nea(args) -> tuple[str | None, tuple[float, float] | None]:
-    """Poll NEA's outdoor PM2.5 and weather for what is configured; return the region and home's position."""
+def meter_altitude(args) -> float | None:
+    """The meter's altitude from its config file, or None (logged when it is bad)."""
+    try:
+        return pressure.load_altitude(args.zytemp_config)
+    except (ValueError, tomllib.TOMLDecodeError) as e:
+        logging.error("%s; outdoor pressure at sea level only", e)
+        return None
+
+
+def start_outdoor(args) -> tuple[str | None, tuple[float, float] | None]:
+    """Poll NEA's outdoor PM2.5 and weather, and the airports' pressure, for what is configured; return the region and home's position."""
     region, home = home_region(args), home_position(args)
     if region is not None:
         nea.start_in_background(args.db)
     if home is not None:
         weather.start_in_background(args.db, home)
+        pressure.start_in_background(args.db, home, meter_altitude(args))
     return region, home
 
 
 def cmd_run(args):
     start_blueair(args)
-    region, home = start_nea(args)
+    region, home = start_outdoor(args)
     status, _ = start_in_background(args.db, device=args.device, min_interval=args.min_interval)
     server.serve(args.db, args.host, args.port, recorder=status, outdoor_region=region, home=home)
 
 
 def cmd_record(args):
     start_blueair(args)
-    start_nea(args)
+    start_outdoor(args)
     record(args.db, device=args.device, min_interval=args.min_interval)
 
 
@@ -96,6 +106,16 @@ def cmd_nea(args):
     if home is not None:
         weather.start_in_background(args.db, home)
     nea.poll(args.db)
+
+
+def cmd_pressure(args):
+    try:
+        home, altitude = weather.load_home(args.nea_config), pressure.load_altitude(args.zytemp_config)
+    except (ValueError, tomllib.TOMLDecodeError) as e:
+        sys.exit(str(e))
+    if home is None:
+        sys.exit(f"put the home position in {args.nea_config} (see docs/nea.md)")
+    pressure.poll(args.db, home, altitude)
 
 
 def cmd_serve(args):
@@ -208,6 +228,7 @@ def main(argv=None):
         p.add_argument("--min-interval", type=float, default=5.0, help="seconds between stored readings")
         purifier(p)
         outdoor(p)
+        meter(p)
 
     def purifier(p):
         p.add_argument(
@@ -217,6 +238,11 @@ def main(argv=None):
     def outdoor(p):
         p.add_argument(
             "--nea-config", type=Path, default=nea.default_config_path(), help="NEA home region and position (default: %(default)s)"
+        )
+
+    def meter(p):
+        p.add_argument(
+            "--zytemp-config", type=Path, default=pressure.default_altitude_path(), help="the meter's altitude (default: %(default)s)"
         )
 
     def serving(p):
@@ -243,6 +269,11 @@ def main(argv=None):
     p = sub.add_parser("nea", help="poll NEA's outdoor PM2.5 and weather (Singapore) only")
     outdoor(p)
     p.set_defaults(func=cmd_nea)
+
+    p = sub.add_parser("pressure", help="poll the air pressure the airports around Singapore report only")
+    outdoor(p)
+    meter(p)
+    p.set_defaults(func=cmd_pressure)
 
     p = sub.add_parser("serve", help="serve the dashboard only")
     serving(p)

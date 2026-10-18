@@ -1,4 +1,5 @@
-Record pressure
+Don't record universally constant channels
+Record outside CO2/O2
 
 Online DB
 CLI endpoint
@@ -6,7 +7,9 @@ Provenance and references for the occult analysis
 
 Calibrate the CO2 meter
 Map the CO2 meter's altitude correction at 1000, 2000 and 3000 m (../archive/zytemp-channels.md)
-Test whether the meter's op_52/op_56 follow a barometer
+Test whether the meter's op_52/op_56 follow a barometer (`home_pressure`, ../pressure.md)
+Smooth `home_pressure` in time, to average out more of the METARs' whole-hPa rounding
+Chart the outdoor pressure on the dashboard
 Drop the stale CO2 frames the meter sends right after power-up
 
 Update devices firmware
