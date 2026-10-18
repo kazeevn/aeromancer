@@ -15,10 +15,15 @@ Drop the stale CO2 frames the meter sends right after power-up
 Update devices firmware
 
 More data:
-Google Health
 Bluetooth & WiFi devices
 SP power & water
 Laptop's camera and microphone
+
+Use the Google Health data (../health.md): chart heart rate and sleep on the dashboard; take
+`health_sleep` as a known occupant of the bedroom, to fit the night's air changes from the CO2
+rise and test the Oracle's souls count; weight each soul's CO2 by heart rate; set bedroom CO2
+against the night's awake minutes, HRV and resting heart rate over many nights, with the bedroom
+temperature held apart. SpO2 should not follow CO2 at all, which makes it a negative control.
 
 Keep the zyTemp next to the purifier for several days, so that a few of the eCO2 reference
 resets are recorded (the 13-hour side-by-side run is in ../archive/blueair-eco2.md). Keep the
