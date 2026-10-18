@@ -4,7 +4,12 @@ version = "0.1.0"
 description = "Record, plot and over-interpret a ZyAura USB CO2 monitor"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "matplotlib>=3.11.2",
+    "numpy>=2.4.6",
+    "pandas>=3.0.6",
+    "scipy>=1.17.1",
+]
 
 [project.optional-dependencies]
 blueair = ["blueair-api>=1.56; python_version >= '3.12'"]

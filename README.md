@@ -5,9 +5,6 @@ the readings in SQLite, draws them on a local dashboard, and runs a
 strictly pseudo-scientific analysis of your air. Optionally it also records
 a Blueair purifier and Singapore's outdoor PM2.5, weather and air pressure.
 
-Pure Python standard library (3.11+): no packages to install, unless you
-also want the optional Blueair purifier poller.
-
 ## Quick start
 
 Let your user read the meter (once):
