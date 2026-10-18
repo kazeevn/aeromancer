@@ -3,7 +3,7 @@ Description=Aeromancer: CO2 monitor recorder and dashboard (http://127.0.0.1:800
 
 [Service]
 ExecStart=/usr/bin/python3 -m aeromancer run
-WorkingDirectory=%h/projects/co2-monitor
+WorkingDirectory=%h/projects/aeromancer
 Restart=on-failure
 
 [Install]

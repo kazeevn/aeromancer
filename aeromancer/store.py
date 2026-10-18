@@ -58,9 +58,7 @@ class Placement:
 
 def default_path() -> Path:
     base = Path(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"))
-    path = base / "aeromancer" / "readings.sqlite3"
-    legacy = base / "co2monitor" / "readings.sqlite3"  # from before the project was renamed
-    return legacy if legacy.exists() and not path.exists() else path
+    return base / "aeromancer" / "readings.sqlite3"
 
 
 class Store:
