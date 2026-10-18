@@ -18,7 +18,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS readings (
     ts       REAL NOT NULL,  -- unix time, seconds
     quantity TEXT NOT NULL,  -- co2 | temperature | humidity | op_XX (undocumented codes) | blueair_<sensor> | nea_pm25_<region> | nea_<weather>_<station>
-             -- | synop_<field>_<WMO id> | metar_<field>_<ICAO id> | home_pressure[_msl]
+             -- | synop_<field>_<WMO id> | metar_<field>_<ICAO id> | home_pressure[_msl] | health_<field> (a wearable)
     value    REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS readings_quantity_ts ON readings (quantity, ts);
@@ -43,8 +43,8 @@ DEVICES = ("zytemp", "blueair")
 
 
 def device_of(quantity: str) -> str | None:
-    """The device that measured ``quantity``; None for outdoor data, which has no placement."""
-    if quantity.startswith(("nea_", "synop_", "metar_", "home_")):
+    """The device that measured ``quantity``; None for outdoor data and the wearable, which have no placement."""
+    if quantity.startswith(("nea_", "synop_", "metar_", "home_", "health_")):
         return None
     return "blueair" if quantity.startswith("blueair_") else "zytemp"
 

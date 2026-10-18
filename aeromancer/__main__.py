@@ -1,4 +1,4 @@
-"""Command line: ``python -m aeromancer {run,record,blueair,nea,pressure,serve,place,placements,unplace,oracle,kabbalah,simulate}``."""
+"""Command line: ``python -m aeromancer {run,record,blueair,nea,pressure,health,health-login,serve,place,placements,unplace,oracle,kabbalah,simulate}``."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from . import blueair, filter_health, nea, pressure, server, weather
+from . import blueair, filter_health, health, nea, pressure, server, weather
 from .device import Reading
 from .recorder import record, start_in_background
 from .store import DEVICES, Store, default_path
@@ -39,6 +39,21 @@ def filter_settings(args) -> filter_health.Settings | None:
     except (ValueError, tomllib.TOMLDecodeError) as e:
         logging.error("%s; not judging the filter", e)
         return None
+
+
+def start_health(args) -> None:
+    """Poll Google Health alongside the meter if an OAuth client is configured."""
+    try:
+        client = health.load_client(args.health_client)
+        if client is None:
+            return
+    except (ValueError, OSError) as e:
+        logging.error("%s; not polling Google Health", e)
+        return
+    if not args.health_token.exists():
+        logging.error("no Google Health login in %s; run health-login, until then not polling it", args.health_token)
+        return
+    health.start_in_background(args.db, client, args.health_token)
 
 
 def home_region(args) -> str | None:
@@ -81,6 +96,7 @@ def start_outdoor(args) -> tuple[str | None, tuple[float, float] | None]:
 
 def cmd_run(args):
     start_blueair(args)
+    start_health(args)
     region, home = start_outdoor(args)
     status, _ = start_in_background(args.db, device=args.device, min_interval=args.min_interval)
     server.serve(
@@ -90,6 +106,7 @@ def cmd_run(args):
 
 def cmd_record(args):
     start_blueair(args)
+    start_health(args)
     start_outdoor(args)
     record(args.db, device=args.device, min_interval=args.min_interval)
 
@@ -127,6 +144,24 @@ def cmd_pressure(args):
     if home is None:
         sys.exit(f"put the home position in {args.nea_config} (see docs/nea.md)")
     pressure.poll(args.db, home, altitude)
+
+
+def _health_client_or_exit(args) -> dict:
+    try:
+        client = health.load_client(args.health_client)
+    except ValueError as e:
+        sys.exit(str(e))
+    if client is None:
+        sys.exit(f"download the Google Health OAuth client to {args.health_client} (see docs/health.md)")
+    return client
+
+
+def cmd_health(args):
+    health.poll(args.db, _health_client_or_exit(args), args.health_token)
+
+
+def cmd_health_login(args):
+    health.login(_health_client_or_exit(args), args.health_token, open_browser=not args.no_browser)
 
 
 def cmd_serve(args):
@@ -247,6 +282,7 @@ def main(argv=None):
         purifier(p)
         outdoor(p)
         meter(p)
+        wearable(p)
 
     def purifier(p):
         p.add_argument(
@@ -261,6 +297,17 @@ def main(argv=None):
     def meter(p):
         p.add_argument(
             "--zytemp-config", type=Path, default=pressure.default_altitude_path(), help="the meter's altitude (default: %(default)s)"
+        )
+
+    def wearable(p):
+        p.add_argument(
+            "--health-client",
+            type=Path,
+            default=health.default_client_path(),
+            help="Google Health OAuth client (default: %(default)s)",
+        )
+        p.add_argument(
+            "--health-token", type=Path, default=health.default_token_path(), help="its refresh token (default: %(default)s)"
         )
 
     def serving(p):
@@ -292,6 +339,15 @@ def main(argv=None):
     outdoor(p)
     meter(p)
     p.set_defaults(func=cmd_pressure)
+
+    p = sub.add_parser("health", help="poll Google Health (a Fitbit or Pixel Watch) only")
+    wearable(p)
+    p.set_defaults(func=cmd_health)
+
+    p = sub.add_parser("health-login", help="allow aeromancer to read Google Health, and save the login")
+    wearable(p)
+    p.add_argument("--no-browser", action="store_true", help="only print the address to open")
+    p.set_defaults(func=cmd_health_login)
 
     p = sub.add_parser("serve", help="serve the dashboard only")
     serving(p)

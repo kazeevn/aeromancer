@@ -3,7 +3,8 @@
 Records the ZyAura / Holtek "USB-zyTemp" CO₂ meter (USB `04d9:a052`), stores
 the readings in SQLite, draws them on a local dashboard, and runs a
 strictly pseudo-scientific analysis of your air. Optionally it also records
-a Blueair purifier and Singapore's outdoor PM2.5, weather and air pressure.
+a Blueair purifier, Singapore's outdoor PM2.5, weather and air pressure, and
+a Fitbit's heart rate and sleep.
 
 ## Quick start
 
@@ -37,6 +38,8 @@ python3 -m aeromancer --db /tmp/demo.sqlite3 serve
   (Singapore), and why this source
 - [Outdoor air pressure](docs/pressure.md): the airports' reports, and how
   they are interpolated for home
+- [Google Health](docs/health.md): the optional poller of a Fitbit's or
+  Pixel Watch's heart rate, sleep and SpO₂
 - [The dashboard](docs/dashboard.md)
 - [The Oracle](docs/oracle.md) and [the Tree of Life](docs/kabbalah.md): the
   analyses, and what each one actually computes
