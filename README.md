@@ -32,6 +32,8 @@ python3 -m aeromancer --db /tmp/demo.sqlite3 serve
 
 - [Recording](docs/recording.md): commands, the database, running as a
   service, and where the devices are
+- [Hosting](docs/cloud.md): one dashboard on a free Google Cloud VM, fed by
+  several computers and shared through expiring links
 - [Blueair purifier](docs/blueair.md): the optional purifier poller, and
   how worn its filter is
 - [Outdoor PM2.5 and weather](docs/nea.md): the optional NEA poller

@@ -22,8 +22,11 @@ function saveRange(r) {
   try { localStorage.setItem(RANGE_KEY, r); } catch { /* private mode */ }
 }
 
+class Expired extends Error {}
+
 async function getJSON(url) {
   const res = await fetch(url);
+  if (res.status === 401) throw new Expired("This link has expired. Ask for a new one.");  // hosted: docs/cloud.md
   if (!res.ok) throw new Error(`${url}: ${res.status}`);
   return res.json();
 }
@@ -1809,7 +1812,7 @@ async function refresh({ rangeChanged = false } = {}) {
     const status = document.getElementById("recorder-status");
     status.classList.remove("live");
     status.classList.add("down");
-    status.textContent = `Dashboard server unreachable (${e.message})`;
+    status.textContent = e instanceof Expired ? e.message : `Dashboard server unreachable (${e.message})`;
   } finally {
     charts.forEach(c => c.classList.remove("loading"));
   }
@@ -1833,4 +1836,6 @@ new ResizeObserver(() => {
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderCharts);
 
 refresh();
-setInterval(refresh, REFRESH_MS);
+// A hidden tab waits, which saves the hosted dashboard's traffic, and catches up when shown again.
+setInterval(() => { if (!document.hidden) refresh(); }, REFRESH_MS);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });

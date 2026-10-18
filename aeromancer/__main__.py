@@ -1,4 +1,4 @@
-"""Command line: ``python -m aeromancer {run,record,blueair,nea,pressure,health,health-login,serve,place,placements,unplace,oracle,kabbalah,simulate}``."""
+"""Command line: ``python -m aeromancer {run,record,blueair,nea,pressure,health,health-login,serve,host,token,place,placements,unplace,oracle,kabbalah,simulate}``."""
 
 from __future__ import annotations
 
@@ -13,10 +13,10 @@ import time
 import tomllib
 from pathlib import Path
 
-from . import blueair, filter_health, health, nea, pressure, server, weather
+from . import blueair, filter_health, health, nea, pressure, push, server, tokens, weather
 from .device import Reading
 from .recorder import record, start_in_background
-from .store import DEVICES, Store, default_path
+from .store import DEVICES, Placement, Store, default_path
 
 
 def start_blueair(args) -> None:
@@ -94,9 +94,23 @@ def start_outdoor(args) -> tuple[str | None, tuple[float, float] | None]:
     return region, home
 
 
+def remote(args) -> push.Remote | None:
+    """The hosted dashboard this machine uploads to, or None when there is none (exits when its config is bad)."""
+    try:
+        return push.load_remote(args.remote_config)
+    except (ValueError, tomllib.TOMLDecodeError) as e:
+        sys.exit(str(e))
+
+
+def start_push(args) -> None:
+    if (to := remote(args)) is not None:
+        push.start_in_background(args.db, to)
+
+
 def cmd_run(args):
     start_blueair(args)
     start_health(args)
+    start_push(args)
     region, home = start_outdoor(args)
     status, _ = start_in_background(args.db, device=args.device, min_interval=args.min_interval)
     server.serve(
@@ -107,6 +121,7 @@ def cmd_run(args):
 def cmd_record(args):
     start_blueair(args)
     start_health(args)
+    start_push(args)
     start_outdoor(args)
     record(args.db, device=args.device, min_interval=args.min_interval)
 
@@ -175,6 +190,69 @@ def cmd_serve(args):
     )
 
 
+def cmd_host(args):
+    Store(args.db).close()  # create the database and its tables before the first request
+    start_blueair(args)
+    start_health(args)
+    region, home = start_outdoor(args)
+    server.serve(
+        args.db, args.host, args.port, outdoor_region=region, home=home, filter_settings=filter_settings(args), auth=True
+    )
+
+
+def default_host_config() -> Path:
+    return nea.default_config_path().with_name("host.toml")
+
+
+def share_url(args, secret: str) -> str:
+    """The address that lets the token's holder in: the hosted dashboard's (host.toml), or just the token."""
+    try:
+        with args.host_config.open("rb") as f:
+            url = tomllib.load(f).get("url")
+    except FileNotFoundError:
+        url = None
+    return f"{url.rstrip('/')}/?t={secret}" if url else secret
+
+
+def parse_lifetime(text: str) -> float | None:
+    """'7d', '12h' -> seconds; 'never' -> None."""
+    if text == "never":
+        return None
+    try:
+        seconds = server.parse_range(text)
+    except ValueError:
+        seconds = None
+    if seconds is None or seconds <= 0:
+        raise argparse.ArgumentTypeError(f"not a lifetime like 7d, 12h or never: {text!r}")
+    return seconds
+
+
+def cmd_token_add(args):
+    store = Store(args.db)
+    secret = tokens.issue(store, args.name, "write" if args.write else "view", args.lifetime)
+    print(secret if args.write else share_url(args, secret))
+
+
+def cmd_token_list(args):
+    now = time.time()
+    rows = tokens.list_tokens(Store(args.db, readonly=True))
+    if not rows:
+        print("no tokens")
+    for t in rows:
+        if t.revoked is not None:
+            state = "revoked " + describe_when(t.revoked)
+        elif t.expires is None:
+            state = "never expires"
+        else:
+            state = ("expired " if t.expires <= now else "expires ") + describe_when(t.expires)
+        print(f"{t.id:>4}  {t.scope:<5}  {t.name:<20}  {state}")
+
+
+def cmd_token_revoke(args):
+    if not tokens.revoke(Store(args.db), args.id):
+        sys.exit(f"no unrevoked token {args.id}")
+
+
 def parse_when(text: str) -> float:
     """'start' -> 0 (since before recording began); local 'YYYY-MM-DD HH:MM' or 'HH:MM' (today) -> unix time."""
     if text == "start":
@@ -194,17 +272,29 @@ def describe_when(ts: float) -> str:
     return "since the start" if ts == 0 else datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
 
 
+def _call_or_exit(to: push.Remote, method: str, path: str, body=None):
+    try:
+        return push.call(to, method, path, body)
+    except (OSError, RuntimeError, ValueError) as e:
+        sys.exit(str(e))
+
+
 def cmd_place(args):
-    store = Store(args.db)
     if args.at > time.time() + 60:
         sys.exit("that is in the future; record the move when it happens")
-    store.place(args.at, args.device, args.room, args.spot)
+    if (to := remote(args)) is not None:
+        _call_or_exit(to, "POST", "/api/placements", {"ts": args.at, "device": args.device, "room": args.room, "spot": args.spot})
+    else:
+        Store(args.db).place(args.at, args.device, args.room, args.spot)
     cmd_placements(args)
 
 
 def cmd_placements(args):
-    store = Store(args.db, readonly=True)
-    placements = store.placements(args.device)
+    if (to := remote(args)) is not None:
+        query = f"?device={args.device}" if args.device else ""
+        placements = [Placement(**p) for p in _call_or_exit(to, "GET", "/api/placements" + query)]
+    else:
+        placements = Store(args.db, readonly=True).placements(args.device)
     if not placements:
         print("no placements recorded")
     for p in placements:
@@ -212,7 +302,9 @@ def cmd_placements(args):
 
 
 def cmd_unplace(args):
-    if not Store(args.db).unplace(args.id):
+    if (to := remote(args)) is not None:
+        _call_or_exit(to, "DELETE", f"/api/placements/{args.id}")
+    elif not Store(args.db).unplace(args.id):
         sys.exit(f"no placement {args.id}")
 
 
@@ -283,6 +375,15 @@ def main(argv=None):
         outdoor(p)
         meter(p)
         wearable(p)
+        uploading(p)
+
+    def uploading(p):
+        p.add_argument(
+            "--remote-config",
+            type=Path,
+            default=push.default_config_path(),
+            help="the hosted dashboard to upload to and place devices on (default: %(default)s)",
+        )
 
     def purifier(p):
         p.add_argument(
@@ -355,6 +456,33 @@ def main(argv=None):
     outdoor(p)
     p.set_defaults(func=cmd_serve)
 
+    p = sub.add_parser("host", help="poll the online sources and serve the dashboard to token holders (docs/cloud.md)")
+    purifier(p)
+    outdoor(p)
+    meter(p)
+    wearable(p)
+    p.add_argument("--host", default="127.0.0.1", help="behind a TLS proxy such as Caddy (default: %(default)s)")
+    p.add_argument("--port", type=int, default=8000)
+    p.set_defaults(func=cmd_host)
+
+    p = sub.add_parser("token", help="let people see the hosted dashboard, and machines upload to it")
+    tokens_sub = p.add_subparsers(required=True)
+    t = tokens_sub.add_parser("add", help="issue a token, and print the link that uses it")
+    t.add_argument("name", help="whom it is for, e.g. alice or laptop")
+    t.add_argument("--write", action="store_true", help="for a recording machine: upload, but not view")
+    t.add_argument(
+        "--for", dest="lifetime", type=parse_lifetime, default=7 * 86400, help="e.g. 12h, 30d or never (default: 7d)"
+    )
+    t.add_argument(
+        "--host-config", type=Path, default=default_host_config(), help="the dashboard's address (default: %(default)s)"
+    )
+    t.set_defaults(func=cmd_token_add)
+    t = tokens_sub.add_parser("list", help="list the tokens")
+    t.set_defaults(func=cmd_token_list)
+    t = tokens_sub.add_parser("revoke", help="stop a token working, at once")
+    t.add_argument("id", type=int, help="as listed by token list")
+    t.set_defaults(func=cmd_token_revoke)
+
     p = sub.add_parser(
         "place",
         help="record where a device is",
@@ -371,14 +499,17 @@ def main(argv=None):
         help="when it got there: 'YYYY-MM-DD HH:MM' or 'HH:MM' local time, or 'start' for since before recording began "
         "(default: now)",
     )
+    uploading(p)
     p.set_defaults(func=cmd_place)
 
     p = sub.add_parser("placements", help="list where the devices have been")
     p.add_argument("device", nargs="?", choices=DEVICES)
+    uploading(p)
     p.set_defaults(func=cmd_placements)
 
     p = sub.add_parser("unplace", help="remove a mistaken placement record")
     p.add_argument("id", type=int, help="as listed by placements")
+    uploading(p)
     p.set_defaults(func=cmd_unplace)
 
     p = sub.add_parser("oracle", help="print the pseudo-scientific analysis")

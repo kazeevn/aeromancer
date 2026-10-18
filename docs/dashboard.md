@@ -19,3 +19,7 @@ Below the charts, a Filter card shows how the filter's tile was worked out:
 the last decay test, both forecasts with their ranges, and the app's timer.
 Then the dashboard reads your air through [the Oracle](oracle.md)
 and [the Tree of Life](kabbalah.md).
+
+The dashboard refreshes every 15 s while its tab is visible. Hosted, it
+opens only through a share link, and says so when the link has expired
+([cloud.md](cloud.md)).

@@ -20,7 +20,8 @@ survives the meter being unplugged and picks it up again.
 
 The purifier ([blueair.md](blueair.md)), outdoor ([nea.md](nea.md),
 [pressure.md](pressure.md)) and wearable ([health.md](health.md)) pollers
-start with `run` and `record` when their config files exist.
+start with `run` and `record` when their config files exist, and so does the
+upload to a hosted dashboard ([cloud.md](cloud.md)).
 
 ## As a service
 

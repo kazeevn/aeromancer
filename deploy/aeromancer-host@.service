@@ -1,0 +1,15 @@
+# The hosted dashboard and the online pollers, as user %i (docs/cloud.md).
+[Unit]
+Description=Aeromancer: hosted dashboard and pollers
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=%i
+WorkingDirectory=/home/%i/aeromancer/src
+ExecStart=/home/%i/aeromancer/venv/bin/python -m aeromancer host
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

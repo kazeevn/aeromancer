@@ -1,0 +1,5 @@
+# TLS from Let's Encrypt for the VM's sslip.io name (setup-vm.sh fills it in), and gzip: the charts' JSON shrinks 5x.
+{$AEROMANCER_HOST} {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8000
+}

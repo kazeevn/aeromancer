@@ -36,6 +36,19 @@ CREATE TABLE IF NOT EXISTS stations (  -- outdoor weather stations, as nea_<kind
     longitude REAL NOT NULL,
     elevation REAL  -- metres above mean sea level, where known
 );
+CREATE TABLE IF NOT EXISTS tokens (  -- who may read the hosted dashboard or upload to it (tokens.py)
+    id      INTEGER PRIMARY KEY,
+    name    TEXT NOT NULL,
+    scope   TEXT NOT NULL,         -- view | write
+    hash    TEXT NOT NULL UNIQUE,  -- SHA-256 of the secret, hex; the secret itself is never stored
+    created REAL NOT NULL,
+    expires REAL,                  -- unix time; NULL = never
+    revoked REAL
+);
+CREATE TABLE IF NOT EXISTS pushed (  -- how far the meter's readings have been uploaded to each server (push.py)
+    url        TEXT PRIMARY KEY,
+    last_rowid INTEGER NOT NULL
+);
 """
 
 QUANTITIES = ("co2", "temperature", "humidity")
@@ -47,6 +60,11 @@ def device_of(quantity: str) -> str | None:
     if quantity.startswith(("nea_", "synop_", "metar_", "home_", "health_")):
         return None
     return "blueair" if quantity.startswith("blueair_") else "zytemp"
+
+
+def is_meter(quantity: str) -> bool:
+    """Whether the meter itself measures ``quantity``: what recording machines upload (push.py)."""
+    return quantity in QUANTITIES or quantity.startswith("op_")
 
 
 @dataclass(frozen=True)
@@ -96,6 +114,33 @@ class Store:
                 "INSERT INTO readings (ts, quantity, value) VALUES (?, ?, ?)",
                 ((r.ts, r.quantity, r.value) for r in readings),
             )
+
+    def add_new(self, readings: Iterable[Reading]) -> int:
+        """Add the readings not stored yet (by quantity and time), so uploads can be retried; returns how many were new."""
+        with self.db:
+            before = self.db.total_changes
+            self.db.executemany(
+                "INSERT INTO readings (ts, quantity, value) SELECT ?1, ?2, ?3"
+                " WHERE NOT EXISTS (SELECT 1 FROM readings WHERE quantity = ?2 AND ts = ?1)",
+                ((r.ts, r.quantity, r.value) for r in readings),
+            )
+            return self.db.total_changes - before
+
+    def unpushed(self, after_rowid: int, limit: int) -> list[tuple[int, float, str, float]]:
+        """``(rowid, ts, quantity, value)`` of the meter's readings stored after ``after_rowid``, oldest first."""
+        return self.db.execute(
+            "SELECT rowid, ts, quantity, value FROM readings"
+            " WHERE rowid > ? AND (quantity IN (?, ?, ?) OR quantity GLOB 'op_*') ORDER BY rowid LIMIT ?",
+            (after_rowid, *QUANTITIES, limit),
+        ).fetchall()
+
+    def push_cursor(self, url: str) -> int:
+        row = self.db.execute("SELECT last_rowid FROM pushed WHERE url = ?", (url,)).fetchone()
+        return row[0] if row else 0
+
+    def set_push_cursor(self, url: str, rowid: int) -> None:
+        with self.db:
+            self.db.execute("INSERT OR REPLACE INTO pushed (url, last_rowid) VALUES (?, ?)", (url, rowid))
 
     def add_stations(self, stations: Iterable[tuple]) -> None:
         """``(id, name, latitude, longitude[, elevation])``, replacing what was known of each."""
