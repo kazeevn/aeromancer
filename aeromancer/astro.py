@@ -1,7 +1,8 @@
 """Just enough real astronomy to make the pseudo-science sound authoritative.
 
 Planet positions use the JPL "Approximate Positions of the Planets" Keplerian
-elements (E. M. Standish, valid 1800-2050), good to a fraction of a degree.
+elements (E. M. Standish, valid 1800-2050), good to a fraction of a degree,
+with their longitudes moved from the J2000 equinox to the equinox of date.
 The Moon uses the mean synodic month, good to about half a day. Solar time,
 sunrise and the Sun's height follow from the same elements, good to a minute.
 """
@@ -69,6 +70,12 @@ def julian_day(ts: float) -> float:
     return ts / DAY + 2440587.5
 
 
+def _of_date(longitude: float, jd: float) -> float:
+    """A longitude on the J2000 ecliptic, as the elements give it, counted from the equinox of date instead, as the
+    tropical zodiac counts: the equinox slides back along the ecliptic by the general precession, 5029.0966″ a century."""
+    return (longitude + 5029.0966 / 3600 * (jd - J2000) / 36525) % 360
+
+
 def _heliocentric(planet: str, jd: float) -> tuple[float, float, float]:
     base, rate = _ELEMENTS[planet]
     t = (jd - J2000) / 36525
@@ -94,16 +101,27 @@ def _heliocentric(planet: str, jd: float) -> tuple[float, float, float]:
 
 
 def mercury_longitude(ts: float) -> float:
-    """Geocentric ecliptic longitude of Mercury, degrees."""
+    """Geocentric ecliptic longitude of Mercury, degrees from the equinox of date."""
     jd = julian_day(ts)
     mx, my, _ = _heliocentric("mercury", jd)
     ex, ey, _ = _heliocentric("earth", jd)
-    return math.degrees(math.atan2(my - ey, mx - ex)) % 360
+    return _of_date(math.degrees(math.atan2(my - ey, mx - ex)), jd)
 
 
 def sun_longitude(ts: float) -> float:
-    ex, ey, _ = _heliocentric("earth", julian_day(ts))
-    return math.degrees(math.atan2(-ey, -ex)) % 360
+    """Ecliptic longitude of the Sun, degrees from the equinox of date."""
+    jd = julian_day(ts)
+    ex, ey, _ = _heliocentric("earth", jd)
+    return _of_date(math.degrees(math.atan2(-ey, -ex)), jd)
+
+
+def sun_reaches(longitude: float, ts: float) -> float:
+    """When the Sun next reaches ecliptic ``longitude`` (degrees) after ``ts``, to a few seconds."""
+    rate = 360 / 365.2422 / DAY  # degrees a second, on average
+    t = ts + (longitude - sun_longitude(ts)) % 360 / rate
+    for _ in range(3):
+        t += ((longitude - sun_longitude(t) + 180) % 360 - 180) / rate
+    return t
 
 
 def sun_declination(ts: float) -> float:
@@ -116,7 +134,8 @@ def equation_of_time(ts: float) -> float:
     lam = math.radians(sun_longitude(ts))
     right_ascension = math.degrees(math.atan2(math.cos(OBLIQUITY) * math.sin(lam), math.cos(lam)))
     base, rate = _ELEMENTS["earth"]
-    mean_sun = base[3] + rate[3] * (julian_day(ts) - J2000) / 36525 + 180
+    jd = julian_day(ts)
+    mean_sun = _of_date(base[3] + rate[3] * (jd - J2000) / 36525 + 180, jd)
     return 4 * ((mean_sun - right_ascension + 180) % 360 - 180)
 
 
