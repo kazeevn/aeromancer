@@ -1,7 +1,9 @@
 # The dashboard
 
 Live CO₂ with a status (fresh < 800 ≤ stuffy < 1200 ≤ ventilate < 2000 ≤
-leave the room), temperature, humidity on meters that have it, and two charts
+leave the room), temperature, humidity on meters that have it, the
+purifier's filter ([health](blueair.md#filter-health) from the last decay
+test, when it will be due, and the app's own timer), and two charts
 of stacked panels on one time axis, one unit per panel: Air (CO₂ from the
 meter, particles with NEA's outdoor PM2.5 shaded behind them, VOC, the
 purifier's pollution index) and Climate (both temperatures, humidity). The

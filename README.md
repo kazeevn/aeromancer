@@ -34,7 +34,8 @@ python3 -m aeromancer --db /tmp/demo.sqlite3 serve
 
 - [Recording](docs/recording.md): commands, the database, running as a
   service, and where the devices are
-- [Blueair purifier](docs/blueair.md): the optional purifier poller
+- [Blueair purifier](docs/blueair.md): the optional purifier poller, and
+  how worn its filter is
 - [Outdoor PM2.5 and weather](docs/nea.md): the optional NEA poller
   (Singapore), and why this source
 - [Outdoor air pressure](docs/pressure.md): the airports' reports, and how

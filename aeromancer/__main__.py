@@ -13,7 +13,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from . import blueair, nea, pressure, server, weather
+from . import blueair, filter_health, nea, pressure, server, weather
 from .device import Reading
 from .recorder import record, start_in_background
 from .store import DEVICES, Store, default_path
@@ -30,6 +30,15 @@ def start_blueair(args) -> None:
         logging.error("%s; not polling the purifier", e)
         return
     blueair.start_in_background(args.db, config)
+
+
+def filter_settings(args) -> filter_health.Settings | None:
+    """The room and purifier figures that turn a decay test into the filter's health, if configured."""
+    try:
+        return filter_health.load_settings(args.blueair_config)
+    except (ValueError, tomllib.TOMLDecodeError) as e:
+        logging.error("%s; not judging the filter", e)
+        return None
 
 
 def home_region(args) -> str | None:
@@ -74,7 +83,9 @@ def cmd_run(args):
     start_blueair(args)
     region, home = start_outdoor(args)
     status, _ = start_in_background(args.db, device=args.device, min_interval=args.min_interval)
-    server.serve(args.db, args.host, args.port, recorder=status, outdoor_region=region, home=home)
+    server.serve(
+        args.db, args.host, args.port, recorder=status, outdoor_region=region, home=home, filter_settings=filter_settings(args)
+    )
 
 
 def cmd_record(args):
@@ -119,7 +130,14 @@ def cmd_pressure(args):
 
 
 def cmd_serve(args):
-    server.serve(args.db, args.host, args.port, outdoor_region=home_region(args), home=home_position(args))
+    server.serve(
+        args.db,
+        args.host,
+        args.port,
+        outdoor_region=home_region(args),
+        home=home_position(args),
+        filter_settings=filter_settings(args),
+    )
 
 
 def parse_when(text: str) -> float:
@@ -232,7 +250,7 @@ def main(argv=None):
 
     def purifier(p):
         p.add_argument(
-            "--blueair-config", type=Path, default=blueair.default_config_path(), help="Blueair login (default: %(default)s)"
+            "--blueair-config", type=Path, default=blueair.default_config_path(), help="Blueair login and filter settings (default: %(default)s)"
         )
 
     def outdoor(p):
@@ -277,6 +295,7 @@ def main(argv=None):
 
     p = sub.add_parser("serve", help="serve the dashboard only")
     serving(p)
+    purifier(p)
     outdoor(p)
     p.set_defaults(func=cmd_serve)
 

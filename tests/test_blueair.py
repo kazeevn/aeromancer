@@ -21,6 +21,7 @@ class FakeApi:
     def __init__(self, uploads):
         self.uploads = uploads
         self.asked = []
+        self.fan_usage = "40;5200;1100;1900;8200;41000"
 
     async def get_data_points_since(self, uuid, seconds_ago, sample_period):
         self.asked.append(seconds_ago)
@@ -37,7 +38,17 @@ class FakeApi:
         return {"uuid": uuid, "sensors": ["time", "pm", "tmp", "hum", "voc", "allpollu"], "datapoints": rows}
 
     async def get_attributes(self, uuid):
-        return {"fan_speed": "2", "mode": "auto"}
+        return {
+            "auto_mode_dependency": "pm",
+            "brightness": "0",
+            "child_lock": "0",
+            "fan_speed": "2",
+            "fan_usage": self.fan_usage,
+            "filter_status": "OK",
+            "filterType": "cn",
+            "mode": "auto",
+            "wifi_status": "1",
+        }
 
 
 class BlueairTest(unittest.TestCase):
@@ -103,6 +114,8 @@ class BlueairTest(unittest.TestCase):
                 self.assertLessEqual(abs(ts - upload[0]), blueair.SAMPLE_PERIOD)
             self.assertEqual(store.series("blueair_fan_speed", 0, now, 1), [(now, 2.0, 2.0, 2.0)])
             self.assertEqual(store.series("blueair_auto_mode", 0, now, 1), [(now, 1.0, 1.0, 1.0)])
+            self.assertEqual(store.series("blueair_filter_expired", 0, now, 1), [(now, 0.0, 0.0, 0.0)])
+            self.assertEqual(store.latest_of("blueair_fan_usage_4"), (now, 8200))
             count = store.count()
 
             # Nothing new: one cheap request, nothing stored.
@@ -115,14 +128,30 @@ class BlueairTest(unittest.TestCase):
             since = asyncio.run(blueair.poll_once(api, "A1", store, since))
             self.assertEqual((since, api.asked[-1]), (now + 305, 0))
             self.assertEqual(store.series("blueair_pm25", now + 1, now + 305, 1), [(now + 305, 42, 42, 42)])
-            self.assertEqual(store.count(), count + 7)  # five sensors, fan speed, auto mode
+            self.assertEqual(store.count(), count + 14)  # five sensors, fan speed, auto mode, filter due, six counters
 
-            # Two uploads missed: the latest as is, the missed one from the averages.
+            # Two uploads missed, and the filter reset in the app since: the latest as is,
+            # the missed one from the averages, and the replacement two ticks before the latest.
+            api.fan_usage = "0;2;0;0;2;41004"
             api.uploads += [[now + 610, 50, 21.0, 40, 100, 5], [now + 915, 60, 21.0, 40, 100, 5], [now + 1220, 70, 21.0, 40, 100, 5]]
             self.assertEqual(asyncio.run(blueair.poll_once(api, "A1", store, since)), now + 1220)
             pm = store.series("blueair_pm25", now + 306, now + 1220, 1)
             self.assertEqual([v for _, v, _, _ in pm], [50, 60, 70])
+            self.assertEqual(store.latest_of("blueair_filter_replaced"), (now + 1220 - 2 * blueair.TICK, 1.0))
             self.assertEqual(store.latest(), {})  # the meter's quantities stay the meter's
+
+    def test_filter_usage(self):
+        def usage(fan_usage, ts, last):
+            return [(r.ts, r.quantity, r.value) for r in blueair.filter_usage(fan_usage, ts, last)]
+
+        counters = [(1000, f"blueair_fan_usage_{i}", v) for i, v in enumerate([40, 5200, 1100, 1900, 8200, 41000])]
+        self.assertEqual(usage("40;5200;1100;1900;8200;41000", 1000, None), counters)
+        self.assertEqual(usage("40;5200;1100;1900;8200;41000", 1000, (700, 8199)), counters)
+        # Reset: put 3 ticks of running before, or at the last reading when the poller missed less.
+        self.assertEqual(usage("0;3;0;0;3;41004", 10000, (100, 8200))[-1], (10000 - 3 * blueair.TICK, "blueair_filter_replaced", 1.0))
+        self.assertEqual(usage("0;3;0;0;3;41004", 1000, (700, 8200))[-1], (700, "blueair_filter_replaced", 1.0))
+        for odd in (None, "", "1;2;3", "a;b;c;d;e;f"):
+            self.assertEqual(usage(odd, 1000, (700, 8200)), [])
 
     def test_poll_logs_in_again_after_failure(self):
         stop = threading.Event()
@@ -153,7 +182,7 @@ class BlueairTest(unittest.TestCase):
             blueair.poll(Path(d) / "x.sqlite3", blueair.Config("user", "pass"), stop=stop)
             store = Store(Path(d) / "x.sqlite3")
             self.addCleanup(store.close)
-            self.assertEqual(store.count(), 7)
+            self.assertEqual(store.count(), 14)
         self.assertEqual([s.closed for s in sessions], [True, True])
 
 

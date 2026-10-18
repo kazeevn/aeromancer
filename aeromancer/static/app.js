@@ -10,6 +10,7 @@ const state = {
   oracle: null,
   kabbalah: null,
   latest: null,
+  filter: null,
 };
 
 // ---------- helpers ----------
@@ -452,6 +453,43 @@ function renderTiles() {
   document.getElementById("co2-range").textContent = rows.length
     ? `${fmtInt.format(Math.min(...rows.map(r => r[2])))}–${fmtInt.format(Math.max(...rows.map(r => r[3])))} ppm`
     : "";
+}
+
+const fmtDate = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" });
+const fmtMonth = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short" });
+const date = (ts, f = fmtDate) => f.format(new Date(ts * 1000));
+
+// The filter's health from the last decay test, its forecast, and the app's own timer (docs/blueair.md#filter-health).
+function renderFilter() {
+  const f = state.filter;
+  const tile = document.getElementById("filter-tile");
+  tile.hidden = !f || (f.app_days_left === null && !f.tests.length);
+  if (tile.hidden) return;
+  const test = f.tests.at(-1);
+  const now = document.getElementById("filter-now");
+  const testLine = document.getElementById("filter-test");
+  const dueLine = document.getElementById("filter-due");
+  document.getElementById("filter-unit").hidden = !(test && "health" in test);
+  if (!test) {
+    now.textContent = "–";
+    testLine.textContent = "no decay test since the replacement";
+  } else if (!("health" in test)) {
+    now.textContent = "–";
+    testLine.textContent = `decays ${fmt1.format(test.rate)} /h at speed 1 (${date(test.start, fmtDay)}); set the room in the config`;
+  } else {
+    now.textContent = fmtInt.format(test.health * 100);
+    const high = test.health_high === null ? "" : `–${fmtInt.format(test.health_high * 100)}`;
+    testLine.textContent = `${fmtInt.format(test.health_low * 100)}${high} % of fresh · tested ${date(test.start, fmtDay)}`;
+  }
+  const fc = f.forecast;
+  if (test && "health" in test && test.health <= f.replace_at) dueLine.textContent = "due now";
+  else if (fc && fc.due) dueLine.textContent = `due ~${date(fc.due)} (${date(fc.due_early, fmtMonth)} – ${fc.due_late ? date(fc.due_late, fmtMonth) : "never"})`;
+  else dueLine.textContent = "";
+  document.getElementById("filter-app").textContent =
+    f.expired ? "app: replace" : f.app_days_left === null ? "" : `app: ${f.app_days_left} days left`;
+  tile.title = "Clean air delivery as a share of a fresh filter's, from the last decay test (90 % range). "
+    + `Due when it falls to ${fmtInt.format((f.replace_at ?? 0.5) * 100)} %, if the filter wears with age. `
+    + "The app's timer counts running time only.";
 }
 
 // ---------- the Oracle ----------
@@ -1723,17 +1761,19 @@ async function refresh({ rangeChanged = false } = {}) {
   const r = encodeURIComponent(state.range);
   const divine = rangeChanged || Date.now() - oracleFetched >= ORACLE_REFRESH_MS;
   try {
-    const [latest, series, oracle, kabbalah] = await Promise.all([
+    const [latest, series, oracle, kabbalah, filter] = await Promise.all([
       getJSON("api/latest"),
       getJSON(`api/series?range=${r}`),
       divine ? getJSON(`api/oracle?range=${r}`) : null,
       divine ? getJSON(`api/kabbalah?range=${r}`) : null,
+      divine ? getJSON("api/filter") : null,
     ]);
     Object.assign(state, { latest, series });
     renderTiles();
     renderCharts();
     if (oracle) {
-      Object.assign(state, { oracle, kabbalah });
+      Object.assign(state, { oracle, kabbalah, filter });
+      renderFilter();
       oracleFetched = Date.now();
       renderOracle();
       renderKabbalah();

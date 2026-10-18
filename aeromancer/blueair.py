@@ -8,8 +8,10 @@ a longer window, it returns averages over 5-minute buckets laid on a grid
 that ends at the latest upload and starts ``seconds_ago`` before it, each
 stamped with its bucket's start; after a gap we fill in from those, up to a
 day back, restamped with the bucket's end. Points go into the same table as
-the CO2 meter's, as ``blueair_<sensor>`` (e.g. ``blueair_pm25``), plus the
-fan speed and whether it is in auto mode (1 or 0) at the newest upload.
+the CO2 meter's, as ``blueair_<sensor>`` (e.g. ``blueair_pm25``), plus, at
+the newest upload, the fan speed, whether it is in auto mode (1 or 0),
+whether the filter is due (1 or 0), and the usage counters, whose filter
+counter going down marks a filter replacement.
 
 Needs the optional ``blueair_api`` package (``pip install '.[blueair]'``)
 and the Blueair app login in ``~/.config/aeromancer/blueair.toml``::
@@ -55,6 +57,13 @@ SENSORS = {
     "voc": "voc",
     "allpollu": "all_pollution",
 }
+
+# The attribute fan_usage is six ';'-separated counters of 5-minute ticks; the
+# fifth counts the filter's running time since it was last reset in the app,
+# which shows 180 - floor(ticks * 5 / 1444) "days left" (docs/blueair.md).
+FILTER_PART = 4
+FILTER_COUNTER = f"{PREFIX}fan_usage_{FILTER_PART}"
+TICK = 300  # seconds
 
 
 class Unavailable(Exception):
@@ -113,6 +122,26 @@ def parse_datapoints(data) -> list[Reading]:
     ]
 
 
+def filter_usage(fan_usage, ts: float, last: tuple[float, float] | None) -> list[Reading]:
+    """The ``fan_usage`` attribute's six counters at ``ts``, and a filter replacement if the filter's went down.
+
+    ``last`` is ``(ts, value)`` of the filter counter stored before. The counter
+    restarts from 0 when the filter is reset in the app, so the replacement is
+    put that many ticks of running before ``ts``, but not before ``last``.
+    """
+    try:
+        counters = [float(v) for v in fan_usage.split(";")]
+    except (AttributeError, ValueError):
+        return []
+    if len(counters) != 6:
+        return []
+    readings = [Reading(ts, f"{PREFIX}fan_usage_{i}", v) for i, v in enumerate(counters)]
+    filter_ticks = counters[FILTER_PART]
+    if last is not None and filter_ticks < last[1]:
+        readings.append(Reading(max(last[0], ts - filter_ticks * TICK), PREFIX + "filter_replaced", 1.0))
+    return readings
+
+
 def pick(devices: list[dict], wanted: str | None) -> tuple[str, str]:
     """``(uuid, name)`` of the purifier named or numbered ``wanted``, or of the first one."""
     for d in devices:
@@ -143,6 +172,9 @@ async def poll_once(api, uuid: str, store: Store, since: float) -> float:
         readings.append(Reading(newest, PREFIX + "fan_speed", float(attributes["fan_speed"])))
     if "mode" in attributes:  # "auto": the fan follows the sensor named by auto_mode_dependency ("pm"), else it is set by hand
         readings.append(Reading(newest, PREFIX + "auto_mode", float(attributes["mode"] == "auto")))
+    if "filter_status" in attributes:
+        readings.append(Reading(newest, PREFIX + "filter_expired", float(attributes["filter_status"] != "OK")))
+    readings += filter_usage(attributes.get("fan_usage"), newest, store.latest_of(FILTER_COUNTER))
     store.add(readings)
     log.debug("stored %d Blueair readings up to %s", len(readings), time.ctime(newest))
     return newest

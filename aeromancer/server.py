@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import astro, kabbalah, nea, oracle, weather
+from . import astro, filter_health, kabbalah, nea, oracle, weather
 from .recorder import RecorderStatus
 from .store import Store
 
@@ -121,12 +121,21 @@ def run_kabbalah(store: Store, range_text: str, outdoor_region: str | None = Non
 class DashboardServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, db_path, recorder: RecorderStatus | None, outdoor_region: str | None = None, home=None):
+    def __init__(
+        self,
+        address,
+        db_path,
+        recorder: RecorderStatus | None,
+        outdoor_region: str | None = None,
+        home=None,
+        filter_settings: filter_health.Settings | None = None,
+    ):
         super().__init__(address, Handler)
         self.db_path = db_path
         self.recorder = recorder
         self.outdoor_region = outdoor_region
         self.home = home
+        self.filter_settings = filter_settings
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -146,6 +155,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/series": self.series,
             "/api/oracle": self.oracle,
             "/api/kabbalah": self.kabbalah,
+            "/api/filter": self.filter,
         }.get(url.path)
         if api is None:
             return self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
@@ -212,10 +222,19 @@ class Handler(BaseHTTPRequestHandler):
     def kabbalah(self, store: Store, query):
         return run_kabbalah(store, query.get("range", "24h"), self.server.outdoor_region, self.server.home)
 
+    def filter(self, store: Store, query):
+        return filter_health.status(store, self.server.filter_settings)
+
 
 def serve(
-    db_path, host: str, port: int, recorder: RecorderStatus | None = None, outdoor_region: str | None = None, home=None
+    db_path,
+    host: str,
+    port: int,
+    recorder: RecorderStatus | None = None,
+    outdoor_region: str | None = None,
+    home=None,
+    filter_settings: filter_health.Settings | None = None,
 ) -> None:
-    server = DashboardServer((host, port), db_path, recorder, outdoor_region, home)
+    server = DashboardServer((host, port), db_path, recorder, outdoor_region, home, filter_settings)
     log.info("dashboard at http://%s:%d/", host, port)
     server.serve_forever()
