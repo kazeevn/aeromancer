@@ -107,6 +107,8 @@ def interpret(op: int, value: int) -> tuple[str, float] | None:
     if op == OP_HUMIDITY:
         if value == 0:  # models without the sensor report zero
             return None
+        if value > 10_000:  # not humidity but an item of the power-up dump (17280 on ours), kept raw like the rest
+            return "op_41", float(value)
         return "humidity", value / 100
     return f"op_{op:02x}", float(value)
 

@@ -37,6 +37,7 @@ class DecodeTest(unittest.TestCase):
         self.assertEqual(device.interpret(0x42, 4718), ("temperature", 21.73))
         self.assertEqual(device.interpret(0x41, 4512), ("humidity", 45.12))
         self.assertIsNone(device.interpret(0x41, 0))
+        self.assertEqual(device.interpret(0x41, 17280), ("op_41", 17280.0))  # the power-up dump's 0x41
         self.assertIsNone(device.interpret(0x50, 25000))
         self.assertEqual(device.interpret(0x6E, 27168), ("op_6e", 27168.0))
 
