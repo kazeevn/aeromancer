@@ -151,9 +151,9 @@ The MT8057's rear buttons set the altitude above sea level. The power-up dump re
     seems to use a cruder approximation.
   - Two points can't pin down the formula.
 
-**What this means at home.** The meter sits at 30.7 ± 3 m above sea level. This was measured with
+**What this means at home.** The meter sits at 32.1 ± 2.5 m above sea level. This was measured with
 a phone barometer against the Changi airport pressure reports.
-- At a setting of 0 m it reads 0.36 % low (−3.6 ppm at 1000 ppm).
+- At a setting of 0 m it reads 0.38 % low (−3.8 ppm at 1000 ppm).
 - At 100 m it read 0.8 % high.
 
 The meter had been at 0 m all along, and was set back to 0 m after the test.
