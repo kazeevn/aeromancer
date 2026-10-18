@@ -1,5 +1,4 @@
 Don't record universally constant channels
-Record outside CO2/O2
 
 Online DB
 CLI endpoint
