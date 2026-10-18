@@ -18,6 +18,12 @@ DB=${XDG_DATA_HOME:-$HOME/.local/share}/aeromancer/readings.sqlite3
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 
 on_vm() { gcloud compute ssh "$VM" --zone "$ZONE" --command "$1"; }
+local_zone() {  # this machine's time zone, as a tz database name, or nothing
+    local zone
+    zone=$(timedatectl show -p Timezone --value 2>/dev/null) || true
+    [ -n "$zone" ] || zone=$(readlink /etc/localtime 2>/dev/null | sed -n 's|.*/zoneinfo/||p')
+    echo "$zone"
+}
 copy_to_vm() {  # files... destination-directory
     local dest=${*: -1}
     on_vm "mkdir -p $dest"
@@ -38,12 +44,13 @@ create)
     gcloud compute disks add-resource-policies "$VM" --zone "$ZONE" --resource-policies aeromancer-daily
     ;;
 deploy)
-    # This checkout as it is, committed or not, without what git ignores (the venv, databases).
+    # This checkout as it is, committed or not, without what git ignores (the venv, databases),
+    # and this machine's time zone, so that the times the dashboard writes out read as at home.
     git -C "$REPO" status --short | grep -q . && echo "deploying uncommitted changes" >&2
     git -C "$REPO" ls-files -z --cached --others --exclude-standard |
         tar -C "$REPO" --null --files-from - --ignore-failed-read -cz |
         gcloud compute ssh "$VM" --zone "$ZONE" --command \
-            'rm -rf ~/aeromancer/src && mkdir -p ~/aeromancer/src && tar -xz -C ~/aeromancer/src && ~/aeromancer/src/deploy/setup-vm.sh'
+            "rm -rf ~/aeromancer/src && mkdir -p ~/aeromancer/src && tar -xz -C ~/aeromancer/src && ~/aeromancer/src/deploy/setup-vm.sh $(printf %q "$(local_zone)")"
     ;;
 config)
     files=()

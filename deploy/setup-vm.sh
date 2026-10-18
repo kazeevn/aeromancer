@@ -1,8 +1,14 @@
 #!/bin/bash
 # Runs on the VM, from the unpacked source (deploy/gce.sh deploy): installs what aeromancer needs, and (re)starts it.
+# Takes the deploying machine's time zone, if any, for the clock times the server writes out (the VM's is UTC).
 set -euo pipefail
 src=$(cd "$(dirname "$0")/.." && pwd)
 base=$(dirname "$src")
+zone=${1:-}
+
+if [ -n "$zone" ] && [ "$(timedatectl show -p Timezone --value)" != "$zone" ]; then
+    sudo timedatectl set-timezone "$zone" || echo "could not set the time zone to $zone" >&2
+fi
 
 if ! command -v caddy >/dev/null; then
     sudo apt-get update -q

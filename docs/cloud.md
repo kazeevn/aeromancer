@@ -99,7 +99,10 @@ dashboard still shows the local database.
 ## Upkeep
 
 - Updating: `deploy/gce.sh deploy` uploads this checkout as it is, and
-  restarts.
+  restarts. It also sets the VM's time zone to this machine's, so the clock
+  times in the Oracle's and the Prophecy's sentences, which the server
+  writes, read as at home rather than in UTC; the charts are drawn in the
+  browser's time zone either way.
 - Google Health: after each `health-login` (weekly, while the OAuth app is in
   Testing; see [health.md](health.md)), `deploy/gce.sh health-token`.
 - Logs: `deploy/gce.sh ssh journalctl -u aeromancer-host@\$USER -f`.
