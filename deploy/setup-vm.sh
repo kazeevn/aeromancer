@@ -8,7 +8,7 @@ if ! command -v caddy >/dev/null; then
     sudo apt-get update -q
     sudo apt-get install -y -q caddy python3-venv unattended-upgrades
 fi
-if ! swapon --show=NAME --noheadings | grep -q /swapfile; then  # 1 GB of RAM is tight for numpy and scipy
+if ! grep -q /swapfile /proc/swaps; then  # 1 GB of RAM is tight for numpy and scipy
     sudo fallocate -l 1G /swapfile
     sudo chmod 600 /swapfile
     sudo mkswap /swapfile

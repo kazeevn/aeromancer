@@ -56,7 +56,9 @@ Caddy gets its certificate from Let's Encrypt. `AEROMANCER_VM` and
 `AEROMANCER_ZONE` choose another VM name or zone (default `aeromancer` in
 `us-west1-b`).
 
-A budget alert costs nothing and catches surprises:
+A budget alert costs nothing and catches surprises. Give the amount in the
+billing account's currency (`gcloud billing accounts describe ACCOUNT`), e.g.
+`7SGD`, or the request is refused as an invalid argument:
 
 ```sh
 gcloud services enable billingbudgets.googleapis.com
