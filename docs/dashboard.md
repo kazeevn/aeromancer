@@ -18,7 +18,8 @@ that doesn't follow real CO₂ ([study](archive/blueair-eco2.md)).
 Below the charts, a Filter card shows how the filter's tile was worked out:
 the last decay test, both forecasts with their ranges, and the app's timer.
 Then the dashboard reads your air through [the Oracle](oracle.md)
-and [the Tree of Life](kabbalah.md).
+and [the Tree of Life](kabbalah.md). The Tree of Life's heading links to
+itself, `#tree-of-life`, and each of the Oracle's cards has its own `#omen-…`.
 
 The dashboard refreshes every 15 s while its tab is visible. Hosted, it
 opens only through a share link, and says so when the link has expired

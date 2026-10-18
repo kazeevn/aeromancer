@@ -75,6 +75,9 @@ deploy/gce.sh token list
 deploy/gce.sh token revoke 3              # stops working at once
 ```
 
+Add a section to the link, `…/?t=aer_…#tree-of-life`, to open the
+dashboard there.
+
 ## Recording from a computer
 
 Issue it a write token, and put the address and the token in

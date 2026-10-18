@@ -262,6 +262,8 @@ button:focus-visible, .chart svg:focus-visible {
 .oracle-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 14px; }
 .oracle-head h2 { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
 .oracle-head h2::before { content: "✦ "; color: var(--oracle-accent); }
+.oracle-head h2 a { color: inherit; text-decoration: none; }
+.oracle-head h2 a:hover { text-decoration: underline; text-decoration-color: var(--oracle-accent); }
 .disclaimer {
   font-size: 12.5px;
   color: var(--text-secondary);

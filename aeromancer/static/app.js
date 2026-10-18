@@ -1784,6 +1784,14 @@ function renderKabbalah() {
 
 const ORACLE_REFRESH_MS = 60000;  // the Oracle changes its mind slowly, and redrawing it would drop a hover
 let oracleFetched = 0;
+let oracleRendered = false;
+
+// A link to a section or card (#tree-of-life, #omen-moon) lands before the Oracle has drawn
+// what sits above it, so go there again once it has.
+function scrollToHash() {
+  const target = location.hash && document.getElementById(decodeURIComponent(location.hash.slice(1)));
+  if (target) target.scrollIntoView();
+}
 
 async function refresh({ rangeChanged = false } = {}) {
   const charts = document.querySelectorAll(".chart");
@@ -1807,6 +1815,8 @@ async function refresh({ rangeChanged = false } = {}) {
       oracleFetched = Date.now();
       renderOracle();
       renderKabbalah();
+      if (!oracleRendered) scrollToHash();
+      oracleRendered = true;
     }
   } catch (e) {
     const status = document.getElementById("recorder-status");
