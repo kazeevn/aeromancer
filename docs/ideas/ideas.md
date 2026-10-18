@@ -2,6 +2,9 @@ Online DB
 CLI endpoint
 Provenance and references for the occult analysis
 
+Calibrate the CO2 meter
+Check elevation setting of the CO2 meter
+
 More data:
 Google Health
 Bluetooth & WiFi devices
