@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from http import HTTPStatus
 from http.cookies import CookieError, SimpleCookie
@@ -14,7 +15,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from . import astro, filter_health, kabbalah, nea, oracle, prophecy, tokens, weather
 from .device import Reading
 from .recorder import RecorderStatus
-from .store import Store, is_meter
+from .store import DEVICES, Store, indoor_only, is_meter, outdoor_intakes
 
 log = logging.getLogger(__name__)
 
@@ -67,12 +68,16 @@ def _points(rows) -> list[tuple[float, float]]:
 
 
 def _divination_window(store: Store, range_text: str):
-    """The window's start, end and bucket, and a function giving a quantity's points in it at that resolution."""
+    """The window's start, end and bucket, and a function giving a quantity's points in it at that resolution.
+
+    The divinations read the house's air, so a device's readings of outside air are left out.
+    """
     start, end = _window(store, range_text)
     bucket = max(1.0, (end - start) / ORACLE_POINTS)
+    placements = store.placements()
 
     def points(quantity):
-        return _points(store.series(quantity, start, end, bucket))
+        return indoor_only(quantity, _points(store.series(quantity, start, end, bucket)), placements)
 
     return start, end, bucket, points
 
@@ -115,7 +120,10 @@ def run_oracle(store: Store, range_text: str, outdoor_region: str | None = None,
     born = {member: ts for member, pattern in BIRTHS.items() if (ts := store.first_ts(pattern)) is not None}
     # The I Ching's casters over the day before the hour, whatever the window.
     day = end - astro.DAY
-    recent = {q: _points(store.series(q, day, end, 300)) for q in ("co2", "temperature", "blueair_pm25", "blueair_temperature")}
+    recent = {
+        q: indoor_only(q, _points(store.series(q, day, end, 300)), household["placements"])
+        for q in ("co2", "temperature", "blueair_pm25", "blueair_temperature")
+    }
     recent["outdoor_pm25"] = _points(store.series(nea.PREFIX + outdoor_region, day, end, 300)) if outdoor_region else []
     recent["outdoor_wind_speed"] = _points(weather.home_series(store, home, "wind_speed", day, end, 300))
     return oracle.analyze(temperature=points("temperature"), signals=signals, born=born, recent=recent, **household)
@@ -309,6 +317,7 @@ class Handler(BaseHTTPRequestHandler):
         bucket = max(1.0, (end - start) / int(query.get("points", CHART_POINTS)))
         # Each with the reading before the window, so the lines start at the chart's left edge.
         series = {q: store.series(q, start, end, bucket, lead=True) for q in CHART_QUANTITIES}
+        placements = store.placements()
         # Under a generic name, so the public dashboard does not say where home is.
         region = self.server.outdoor_region
         series["outdoor_pm25"] = store.series(nea.PREFIX + region, start, end, bucket, lead=True) if region else []
@@ -322,10 +331,16 @@ class Handler(BaseHTTPRequestHandler):
             "retrograde": astro.mercury_retrograde_intervals(start, end),
             "lunations": astro.lunations(start, end),
             "moves": [
-                {"ts": m.ts, "device": m.device, "room": m.room, "spot": m.spot}
-                for m in store.placements()
+                {"ts": m.ts, "device": m.device, "room": m.room, "spot": m.spot, "outdoor_intake": m.outdoor_intake}
+                for m in placements
                 if start < m.ts <= end
             ],
+            # When each device drew outside air, ``[from, to]`` with ``to`` null while it lasts, to name its lines by it.
+            "outdoor_intakes": {
+                d: [[a, b if math.isfinite(b) else None] for a, b in spans if b > start and a <= end]
+                for d in DEVICES
+                if (spans := outdoor_intakes(placements, d))
+            },
         }
 
     def oracle(self, store: Store, query):
@@ -342,7 +357,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def placements(self, store: Store, query):
         return [
-            {"id": p.id, "ts": p.ts, "device": p.device, "room": p.room, "spot": p.spot}
+            {"id": p.id, "ts": p.ts, "device": p.device, "room": p.room, "spot": p.spot, "outdoor_intake": p.outdoor_intake}
             for p in store.placements(query.get("device"))
         ]
 
@@ -361,10 +376,13 @@ class Handler(BaseHTTPRequestHandler):
         return {"added": store.add_new(readings)}
 
     def place(self, store: Store, body):
-        """``{"ts", "device", "room", "spot"}``, as the place command records it."""
+        """``{"ts", "device", "room", "spot", "outdoor_intake"}``, as the place command records it."""
         if not isinstance(body, dict) or not {"ts", "device", "room"} <= body.keys():
-            raise ValueError("expected {'ts', 'device', 'room', 'spot'}")
-        return {"id": store.place(float(body["ts"]), str(body["device"]), str(body["room"]), str(body.get("spot", "")))}
+            raise ValueError("expected {'ts', 'device', 'room', 'spot', 'outdoor_intake'}")
+        outdoor_intake = body.get("outdoor_intake", False)
+        if not isinstance(outdoor_intake, bool):
+            raise ValueError("outdoor_intake must be true or false")
+        return {"id": store.place(float(body["ts"]), str(body["device"]), str(body["room"]), str(body.get("spot", "")), outdoor_intake)}
 
 
 def serve(

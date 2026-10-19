@@ -283,9 +283,10 @@ def cmd_place(args):
     if args.at > time.time() + 60:
         sys.exit("that is in the future; record the move when it happens")
     if (to := remote(args)) is not None:
-        _call_or_exit(to, "POST", "/api/placements", {"ts": args.at, "device": args.device, "room": args.room, "spot": args.spot})
+        body = {"ts": args.at, "device": args.device, "room": args.room, "spot": args.spot, "outdoor_intake": args.outdoor_intake}
+        _call_or_exit(to, "POST", "/api/placements", body)
     else:
-        Store(args.db).place(args.at, args.device, args.room, args.spot)
+        Store(args.db).place(args.at, args.device, args.room, args.spot, args.outdoor_intake)
     cmd_placements(args)
 
 
@@ -298,7 +299,8 @@ def cmd_placements(args):
     if not placements:
         print("no placements recorded")
     for p in placements:
-        print(f"{p.id:>4}  {describe_when(p.ts):<16}  {p.device:<7}  {p.room}" + (f": {p.spot}" if p.spot else ""))
+        where = p.room + (f": {p.spot}" if p.spot else "") + (" (outdoor intake)" if p.outdoor_intake else "")
+        print(f"{p.id:>4}  {describe_when(p.ts):<16}  {p.device:<7}  {where}")
 
 
 def cmd_unplace(args):
@@ -528,6 +530,11 @@ def main(argv=None):
     p.add_argument("device", choices=DEVICES)
     p.add_argument("room", help="e.g. bedroom")
     p.add_argument("spot", nargs="?", default="", help="where in the room, e.g. 'floor, 10 cm from the intake'")
+    p.add_argument(
+        "--outdoor-intake",
+        action="store_true",
+        help="the device stands inside but draws mostly outside air, so its air readings are not the room's",
+    )
     p.add_argument(
         "--at",
         type=parse_when,

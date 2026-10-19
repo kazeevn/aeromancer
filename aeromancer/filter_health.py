@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import blueair
-from .store import Store
+from .store import Store, outdoor_intakes
 
 PM = blueair.PREFIX + "pm25"
 FAN = blueair.PREFIX + "fan_speed"
@@ -181,13 +181,17 @@ def _test(run: list[tuple[float, float]]) -> Test | None:
 
 
 def find_tests(store: Store, start: float, end: float) -> list[Test]:
-    """The decay tests from ``start`` to ``end``: uploads at speed 1 set by hand, right after the fan was set off by hand."""
+    """The decay tests from ``start`` to ``end``: uploads at speed 1 set by hand, right after the fan was set off by hand.
+
+    Not while the purifier draws outside air: then it doesn't clear the room it reads.
+    """
     fan = {ts: v for ts, _, v in store.rows(FAN, start, end)}
     auto = {ts: v for ts, _, v in store.rows(AUTO, start, end)}
+    outdoor = outdoor_intakes(store.placements("blueair"), "blueair")
     tests, run, filled = [], [], False
     # The settings are stored at each upload the poller saw as it came; uploads filled in after a gap have none.
     for ts, _, value in store.rows(PM, start, end) + [(math.inf, PM, math.nan)]:
-        setting = (fan.get(ts), auto.get(ts))
+        setting = None if any(a <= ts < b for a, b in outdoor) else (fan.get(ts), auto.get(ts))
         if setting == (1.0, 0.0) and (run or filled):
             run.append((ts, value))
             continue

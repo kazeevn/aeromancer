@@ -9,7 +9,7 @@ from pathlib import Path
 
 from aeromancer import astro, lore, nea, oracle, server
 from aeromancer.device import Reading
-from aeromancer.store import Placement, Store, device_of
+from aeromancer.store import Placement, Store, device_of, indoor_only, outdoor_intakes, samples_air
 
 START = 1_790_000_000.0
 HOUR = 3600
@@ -320,6 +320,11 @@ class HouseholdTest(unittest.TestCase):
         self.assertEqual((f["lag_h"], f["breaches"], f["band"]), (0, 0, "II"))
         self.assertIn("in the bedroom", f["body"])
         self.assertIsNone(oracle.ward([], outdoor))
+        # Moved to draw outside air, its readings since are left out; the room is where it last read the house's.
+        moved = PLACED + [Placement(3, START + 20 * HOUR, "blueair", "living room", "", True)]
+        f = oracle.ward(indoor_only("blueair_pm25", indoor, moved), outdoor, moved)
+        self.assertIn("in the bedroom", f["body"])
+        self.assertLess(f["hours"][-1][0], START + 20 * HOUR)
 
     def test_horoscope_minds_the_haze(self):
         co2, _ = breathing_room()
@@ -418,6 +423,46 @@ class StoreTest(unittest.TestCase):
             self.assertEqual(len(store.placements("zytemp")), 3)
             with self.assertRaises(ValueError):
                 store.place(START, "zytmp", "bedroom")
+            store.close()
+
+    def test_outdoor_intake(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.sqlite3"
+            old = sqlite3.connect(path)  # a database from before the flag
+            old.execute("CREATE TABLE placements (id INTEGER PRIMARY KEY, ts REAL NOT NULL, device TEXT NOT NULL, room TEXT NOT NULL, spot TEXT NOT NULL)")
+            old.execute("INSERT INTO placements (ts, device, room, spot) VALUES (0, 'blueair', 'bedroom', '')")
+            old.commit()
+            old.close()
+            reader = Store(path, readonly=True)  # the dashboard, before the recorder adds the flag
+            self.assertFalse(reader.placements()[0].outdoor_intake)
+            reader.close()
+            store = Store(path)
+            store.place(START + 100, "blueair", "living room", "by the door", outdoor_intake=True)
+            self.assertEqual([p.outdoor_intake for p in store.placements()], [False, True])
+            self.assertTrue(store.placement_at("blueair", START + 100).outdoor_intake)
+            store.place(START + 200, "blueair", "bedroom")
+            store.place(START + 300, "blueair", "living room", outdoor_intake=True)
+            store.place(START + 400, "blueair", "kitchen", outdoor_intake=True)  # moved, still drawing outside air
+            spans = outdoor_intakes(store.placements(), "blueair")
+            self.assertEqual(spans, [(START + 100, START + 200), (START + 300, math.inf)])
+            self.assertEqual(outdoor_intakes(store.placements(), "zytemp"), [])
+            points = [(START + t, 1.0) for t in (0, 100, 150, 200, 250, 300, 500)]
+            self.assertEqual([t - START for t, _ in indoor_only("blueair_pm25", points, store.placements())], [0, 200, 250])
+            self.assertEqual(indoor_only("blueair_fan_speed", points, store.placements()), points)  # a setting, not the air
+            self.assertEqual(indoor_only("co2", points, store.placements()), points)  # the meter's own placements
+            store.close()
+        self.assertTrue(samples_air("blueair_temperature") and samples_air("co2"))
+        self.assertFalse(samples_air("blueair_auto_mode") or samples_air("blueair_fan_usage_4") or samples_air("nea_pm25_west"))
+
+    def test_divinations_leave_out_outside_air(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = Store(Path(d) / "x.sqlite3")
+            now = time.time()
+            store.add([Reading(now - 3600 + m * 300, "blueair_pm25", 5.0 if m < 6 else 40.0) for m in range(12)])
+            store.place(0, "blueair", "bedroom")
+            store.place(now - 1800, "blueair", "living room", outdoor_intake=True)
+            _, _, _, points = server._divination_window(store, "2h")
+            self.assertEqual({v for _, v in points("blueair_pm25")}, {5.0})
             store.close()
 
     def test_readonly(self):

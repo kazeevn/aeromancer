@@ -129,11 +129,14 @@ function timeTicks(start, end, count) {
 /**
  * Panels stacked on one time axis, one unit per panel.
  * panel: { title, height, series, keys, tick, format, minPad, floor, refs, ticks }
- * series: { label, name, color, rows: [ts, mean, min, max][], band, interval, area, dash, width, faint, quiet, key }
+ * series: { label, name, color, rows: [ts, mean, min, max][], band, interval, area, dash, width, faint, quiet, key, device }
  *   area: filled down to the axis, behind the lines that follow it
  *   dash, width, faint: a dashed, thinner or fainter line; quiet: left out of the tooltip and the end labels;
- *   key: marks its line as data-key, for a legend or table to light it up
- * opts: { window: { start, end, bucket } (default: the charts' range), retrograde, lunations, moves, marks: [{ ts, label }], describe }
+ *   key: marks its line as data-key, for a legend or table to light it up;
+ *   device: the placed device that took the readings, to say in the tooltip when it drew outside air
+ * opts: { window: { start, end, bucket } (default: the charts' range), retrograde, lunations, moves, outdoorIntakes,
+ *   marks: [{ ts, label }], describe }
+ *   outdoorIntakes: { device: [[from, to or null]] }, when each device drew outside air
  */
 function stackedChart(container, panels, opts) {
   container.replaceChildren();
@@ -279,7 +282,7 @@ function stackedChart(container, panels, opts) {
     const where = mv.spot ? `${mv.room}, ${mv.spot}` : mv.room;
     const left = xx > m.left + pw / 2;  // keep the label inside the plot
     svg("text", { x: left ? xx - 4 : xx + 4, y: plotTop + 12, "text-anchor": left ? "end" : "start", class: "move-label" }, g)
-      .textContent = `${DEVICE_NAMES[mv.device] || mv.device} → ${where}`;
+      .textContent = `${DEVICE_NAMES[mv.device] || mv.device} → ${where}${mv.outdoor_intake ? " · outdoor intake" : ""}`;
   }
   for (const [t, kind] of opts.lunations || []) {
     const c = svg("circle", { cx: x(t), cy: 9, r: 4.5, class: `moon-mark ${kind}` }, root);
@@ -320,7 +323,8 @@ function stackedChart(container, panels, opts) {
       dot.setAttribute("visibility", near ? "visible" : "hidden");
       if (!near) continue;
       dot.setAttribute("cx", x(r[0])); dot.setAttribute("cy", p.y(r[1]));
-      lines.push({ color: s.color, label: s.label, value: p.format(r[1]) });
+      const outside = (opts.outdoorIntakes?.[s.device] || []).some(([a, b]) => a <= r[0] && (b === null || r[0] < b));
+      lines.push({ color: s.color, label: outside ? `${s.label}, outdoor intake` : s.label, value: p.format(r[1]) });
     }
     const box = root.getBoundingClientRect();
     showTooltip(box.left + (cx / W) * box.width, box.top + (py / H) * box.height, fmtFull.format(new Date(t * 1000)), lines);
@@ -384,12 +388,12 @@ const WEATHER_INTERVAL = 300;  // one point per 5 minutes from the nearest NEA w
 
 function renderCharts() {
   if (!state.series) return;
-  const { series: s, retrograde, lunations, moves } = state.series;
+  const { series: s, retrograde, lunations, moves, outdoor_intakes: outdoorIntakes } = state.series;
   const style = getComputedStyle(document.documentElement);
   const color = name => style.getPropertyValue(`--series-${name}`).trim();
-  const meter = (label, rows) => ({ label, name: "zyTemp", color: color("meter"), rows, band: true });
+  const meter = (label, rows) => ({ label, name: "zyTemp", color: color("meter"), rows, band: true, device: "zytemp" });
   const outdoor = (label, rows) => ({ label, name: "NEA outdoor", color: color("outdoor"), rows: rows || [], interval: WEATHER_INTERVAL });
-  const blueair = (label, rows, extra = {}) => ({ label, name: "Blueair", color: color("blueair"), rows, interval: BLUEAIR_INTERVAL, ...extra });
+  const blueair = (label, rows, extra = {}) => ({ label, name: "Blueair", color: color("blueair"), rows, interval: BLUEAIR_INTERVAL, device: "blueair", ...extra });
   const int = { tick: v => fmtInt.format(v) };
   const one = { tick: v => fmt1.format(v) };
   const describe = (name, panels) => {
@@ -407,7 +411,7 @@ function renderCharts() {
     {
       title: "Particles, µg/m³", height: 180, ticks: 5, minPad: 2, floor: 0, keys: true, ...int, format: v => `${fmtInt.format(v)} µg/m³`,
       series: [
-        // Outdoor first: a shaded backdrop that the indoor lines sit on.
+        // Outdoor first: a shaded backdrop that the purifier's lines sit on.
         { label: "PM2.5 outdoor", name: "PM2.5 outdoor", color: color("outdoor"), rows: s.outdoor_pm25 || [], interval: OUTDOOR_INTERVAL, area: true },
         blueair("PM1", s.blueair_pm1, { name: "PM1", color: color("pm1") }),
         blueair("PM2.5", s.blueair_pm25, { name: "PM2.5" }),
@@ -424,7 +428,7 @@ function renderCharts() {
     },
   ];
   document.getElementById("outdoor-key").hidden = !s.outdoor_pm25?.length;
-  stackedChart(document.getElementById("air-chart"), air, { retrograde, lunations, moves, describe: describe("Air", air) });
+  stackedChart(document.getElementById("air-chart"), air, { retrograde, lunations, moves, outdoorIntakes, describe: describe("Air", air) });
 
   const climate = [
     {
@@ -438,7 +442,7 @@ function renderCharts() {
     },
   ];
   document.getElementById("climate-outdoor-key").hidden = !s.outdoor_temperature?.length && !s.outdoor_humidity?.length;
-  stackedChart(document.getElementById("climate-chart"), climate, { retrograde, moves, describe: describe("Climate", climate) });
+  stackedChart(document.getElementById("climate-chart"), climate, { retrograde, moves, outdoorIntakes, describe: describe("Climate", climate) });
 }
 
 function renderTiles() {

@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS placements (
     ts     REAL NOT NULL,  -- unix time the device got here; 0 = since before recording began
     device TEXT NOT NULL,  -- see DEVICES
     room   TEXT NOT NULL,
-    spot   TEXT NOT NULL   -- free text: where in the room, height, what is nearby
+    spot   TEXT NOT NULL,  -- free text: where in the room, height, what is nearby
+    outdoor_intake INTEGER NOT NULL DEFAULT 0  -- 1 when the device draws mostly outside air, though it stands inside
 );
 CREATE TABLE IF NOT EXISTS stations (  -- outdoor weather stations, as nea_<kind>_<id> and metar_<field>_<id> name them
     id        TEXT PRIMARY KEY,
@@ -75,6 +76,38 @@ class Placement:
     device: str
     room: str
     spot: str
+    outdoor_intake: bool = False  # the device draws mostly outside air, though it stands inside
+
+
+def _placement(row) -> Placement:
+    *rest, outdoor_intake = row
+    return Placement(*rest, bool(outdoor_intake))
+
+
+def samples_air(quantity: str) -> bool:
+    """Whether ``quantity`` is a placed device's reading of the air it draws in, not a setting or a counter."""
+    if quantity.startswith(("blueair_fan_", "blueair_auto_mode", "blueair_filter_")):
+        return False
+    return device_of(quantity) is not None
+
+
+def outdoor_intakes(placements: Iterable[Placement], device: str) -> list[tuple[float, float]]:
+    """The spans, ``(from, to)`` with ``to`` inf while it lasts, when ``device`` drew mostly outside air."""
+    spans, since = [], None
+    for p in sorted((p for p in placements if p.device == device), key=lambda p: (p.ts, p.id)):
+        if p.outdoor_intake and since is None:
+            since = p.ts
+        elif not p.outdoor_intake and since is not None:
+            spans.append((since, p.ts))
+            since = None
+    return spans + ([(since, math.inf)] if since is not None else [])
+
+
+def indoor_only(quantity: str, points: list, placements: Iterable[Placement]) -> list:
+    """``points`` (each starting with its time) of ``quantity``, without the readings of outside air its device took."""
+    if not samples_air(quantity) or not (spans := outdoor_intakes(placements, device_of(quantity))):
+        return points
+    return [p for p in points if not any(a <= p[0] < b for a, b in spans)]
 
 
 def default_path() -> Path:
@@ -105,6 +138,8 @@ class Store:
         self.db.executescript(SCHEMA)
         if "elevation" not in {row[1] for row in self.db.execute("PRAGMA table_info(stations)")}:
             self.db.execute("ALTER TABLE stations ADD COLUMN elevation REAL")  # added after the first version
+        if "outdoor_intake" not in {row[1] for row in self.db.execute("PRAGMA table_info(placements)")}:
+            self.db.execute("ALTER TABLE placements ADD COLUMN outdoor_intake INTEGER NOT NULL DEFAULT 0")  # likewise
 
     def close(self) -> None:
         self.db.close()
@@ -241,31 +276,37 @@ class Store:
             rows.insert(0, (before[0], before[1], before[1], before[1]))
         return rows
 
-    def place(self, ts: float, device: str, room: str, spot: str = "") -> int:
+    def place(self, ts: float, device: str, room: str, spot: str = "", outdoor_intake: bool = False) -> int:
         """Record that ``device`` is in ``room`` at ``spot`` from ``ts`` on; returns the record's id."""
         if device not in DEVICES:
             raise ValueError(f"unknown device {device!r}; expected one of {', '.join(DEVICES)}")
         with self.db:
             return self.db.execute(
-                "INSERT INTO placements (ts, device, room, spot) VALUES (?, ?, ?, ?)", (ts, device, room, spot)
+                "INSERT INTO placements (ts, device, room, spot, outdoor_intake) VALUES (?, ?, ?, ?, ?)",
+                (ts, device, room, spot, int(outdoor_intake)),
             ).lastrowid
 
     def unplace(self, id: int) -> bool:
         with self.db:
             return self.db.execute("DELETE FROM placements WHERE id = ?", (id,)).rowcount > 0
 
+    def _placement_columns(self) -> str:
+        # A readonly Store doesn't add the flag to an older database; until the recorder does, nothing drew outside air.
+        has_flag = "outdoor_intake" in {row[1] for row in self.db.execute("PRAGMA table_info(placements)")}
+        return "id, ts, device, room, spot, " + ("outdoor_intake" if has_flag else "0")
+
     def placements(self, device: str | None = None) -> list[Placement]:
         """Every placement, in time order; of one time, the one recorded last wins and comes last."""
         rows = self.db.execute(
-            "SELECT id, ts, device, room, spot FROM placements WHERE ?1 IS NULL OR device = ?1 ORDER BY ts, id",
+            f"SELECT {self._placement_columns()} FROM placements WHERE ?1 IS NULL OR device = ?1 ORDER BY ts, id",
             (device,),
         ).fetchall()
-        return [Placement(*row) for row in rows]
+        return [_placement(row) for row in rows]
 
     def placement_at(self, device: str, ts: float) -> Placement | None:
         """Where ``device`` was at ``ts``, or None if nobody recorded it."""
         row = self.db.execute(
-            "SELECT id, ts, device, room, spot FROM placements WHERE device = ? AND ts <= ? ORDER BY ts DESC, id DESC LIMIT 1",
+            f"SELECT {self._placement_columns()} FROM placements WHERE device = ? AND ts <= ? ORDER BY ts DESC, id DESC LIMIT 1",
             (device, ts),
         ).fetchone()
-        return Placement(*row) if row else None
+        return _placement(row) if row else None

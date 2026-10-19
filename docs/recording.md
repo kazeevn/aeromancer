@@ -44,6 +44,7 @@ python3 -m aeromancer place zytemp "living room" table --at start   # since befo
 python3 -m aeromancer place blueair bedroom --at start
 python3 -m aeromancer place zytemp bedroom "floor, 10 cm from the purifier's right-side intake"
 python3 -m aeromancer place zytemp bedroom "..." --at "2026-10-17 21:30"   # local time; or just 21:30 for today
+python3 -m aeromancer place blueair "living room" "..." --outdoor-intake   # inside, but drawing outside air
 python3 -m aeromancer placements    # the history, with ids
 python3 -m aeromancer unplace 3     # remove a mistaken record
 ```
@@ -52,6 +53,14 @@ Devices are `zytemp` (the meter's quantities) and `blueair` (`blueair_*`).
 A placement holds until the next one of the same device. They are stored
 in the `placements` table of the same database, and the dashboard marks
 each move on the charts.
+
+`--outdoor-intake` is for a device that stands inside but draws mostly
+outside air. Its readings of the air (not the purifier's settings and
+counters) then describe the outside air, so the divinations, which read
+the house's air, leave them out until the next placement without the flag.
+The charts still show them, and the tooltip names them "outdoor intake".
+A device standing outside altogether is not this: give the place it stands
+as its room instead.
 
 ## What the meter sends
 

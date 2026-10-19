@@ -10,7 +10,9 @@ purifier's pollution index) and Climate (both temperatures, humidity). The
 meter is drawn in blue with per-bucket min–max bands, the purifier in orange,
 NEA in green. Mercury retrograde periods and full/new moons are marked on the
 time axis, and so are the devices' moves ([placements](recording.md#where-the-devices-are)).
-Hover or use the arrow keys on a chart to read every value at that moment.
+Hover or use the arrow keys on a chart to read every value at that moment;
+a device's readings taken while it drew outside air are named "outdoor
+intake" ([blueair.md](blueair.md#outdoor-intake)).
 
 The purifier's CO₂ is not charted: it is an estimate from its VOC sensor
 that doesn't follow real CO₂ ([study](archive/blueair-eco2.md)). Its

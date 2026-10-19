@@ -101,8 +101,14 @@ class HostedTest(unittest.TestCase):
         remote = push.Remote(self.url, self.write)
         added = push.call(remote, "POST", "/api/placements", {"ts": START, "device": "zytemp", "room": "office", "spot": ""})
         (placement,) = push.call(remote, "GET", "/api/placements")
-        self.assertEqual((placement["id"], placement["room"]), (added["id"], "office"))
+        self.assertEqual((placement["id"], placement["room"], placement["outdoor_intake"]), (added["id"], "office", False))
         push.call(remote, "DELETE", f"/api/placements/{added['id']}")
+        body = {"ts": START, "device": "blueair", "room": "office", "spot": "", "outdoor_intake": True}
+        added = push.call(remote, "POST", "/api/placements", body)
+        self.assertTrue(push.call(remote, "GET", "/api/placements")[0]["outdoor_intake"])
+        push.call(remote, "DELETE", f"/api/placements/{added['id']}")
+        with self.assertRaises(RuntimeError):
+            push.call(remote, "POST", "/api/placements", {**body, "outdoor_intake": "yes"})
         self.assertEqual(push.call(remote, "GET", "/api/placements"), [])
         with self.assertRaises(RuntimeError):
             push.call(remote, "DELETE", f"/api/placements/{added['id']}")

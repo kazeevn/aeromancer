@@ -1564,7 +1564,7 @@ def society(guests: dict[str, list], start: float, end: float, placements=(), ho
     meter, purifier = _where(placements, "zytemp", end), _where(placements, "blueair", end)
     if meter and purifier:
         home_life = f"together in the {meter.room}" if meter.room == purifier.room else f"apart, in the {meter.room} and the {purifier.room}"
-        text = f"The meter and the purifier live {home_life}"
+        text = f"The meter and the purifier live {home_life}" + (", the purifier breathing the outside air" if purifier.outdoor_intake else "")
         if (r := ties.get(("temperature", "blueair_temperature"))) is not None:
             mood = "agree" if r >= FRIENDS_AT else "disagree" if r <= -FRIENDS_AT else "barely speak"
             text += f"; their temperatures {mood} (r = {r:+.2f})"
@@ -2570,7 +2570,7 @@ def _fan_wards(hours: list[tuple[float, float, float]], fan) -> dict[int, float]
     }
 
 
-def ward(indoor, outdoor, placements=(), end: float | None = None, fan=None, outdoor_pm25: float | None = None) -> dict | None:
+def ward(indoor, outdoor, placements=(), fan=None, outdoor_pm25: float | None = None) -> dict | None:
     """How much of the outdoor PM2.5 the purifier's room keeps out, hour by hour, and how late the rest arrives.
     ``fan`` is the purifier's fan speed, to find the speed it wards best at."""
     if not indoor or not outdoor:
@@ -2595,7 +2595,8 @@ def ward(indoor, outdoor, placements=(), end: float | None = None, fan=None, out
         if len(matched) >= 8 and (r := _pearson([o for o, _ in matched], [i for _, i in matched])) is not None:
             delays.append((r, -lag))
     lag = -max(delays)[1] if delays else None
-    placement = _where(placements, "blueair", end if end is not None else hours[-1][0])
+    # Where it last read the room: the readings of outside air are left out of ``indoor``.
+    placement = _where(placements, "blueair", indoor[-1][0])
     room = f"the {placement.room}" if placement else "the house"
     reading = next(r for low, r in WARDS if strength >= low)
     lines = [f"Outside, the haze averaged {outside:.0f} µg/m³ (band {band}, {band_name}); in {room}, the purifier counted {inside:.0f}."]
@@ -2689,7 +2690,7 @@ def analyze(
         clock(guests, start, end, home, outdoor_pm25),
         elements(regions or {}, others.get("outdoor_pm25")),
         winds(others.get("outdoor_wind_direction"), others.get("outdoor_wind_speed"), others.get("outdoor_rain"), others.get("outdoor_pm25")),
-        ward(others.get("blueair_pm25"), others.get("outdoor_pm25"), placements, end, others.get("blueair_fan_speed"), outdoor_pm25),
+        ward(others.get("blueair_pm25"), others.get("outdoor_pm25"), placements, others.get("blueair_fan_speed"), outdoor_pm25),
     ]
     findings += [f for f in household if f]
     if co2:

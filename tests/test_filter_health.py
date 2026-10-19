@@ -76,6 +76,13 @@ class FilterHealthTest(unittest.TestCase):
         self.add_test(TEST + DAY, 0.2)
         self.assertEqual(fh.find_tests(self.store, REPLACED, TEST + 2 * DAY), [])
 
+    def test_ignores_tests_with_an_outdoor_intake(self):
+        self.store.place(TEST - 2 * 3600, "blueair", "living room", outdoor_intake=True)
+        self.add_test(TEST, 4.5)
+        self.assertEqual(fh.find_tests(self.store, REPLACED, TEST + DAY), [])
+        self.store.place(TEST + 1800, "blueair", "bedroom")  # back mid-run: the rest is too short for a test
+        self.assertEqual(fh.find_tests(self.store, REPLACED, TEST + DAY), [])
+
     def test_health_and_its_spread(self):
         settings = fh.Settings(room_volume=20.0, cadr=100.0)
         h, sd = fh.health(4.65, 0.2, settings)

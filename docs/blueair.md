@@ -132,5 +132,28 @@ own recording.
 above the zyTemp with the fan off and 2–4 °C running, more at low speed
 ([study](archive/blueair-temperature.md)).
 
+## Outdoor intake
+
+The purifier can be set up to take its air mostly from outside
+(`place blueair ... --outdoor-intake`, [placements](recording.md#where-the-devices-are)).
+It then works as a filtered fresh-air supply: it draws outside air through
+the filter and blows it into the room, and the air it pushes in leaves
+through the room's other gaps. So:
+
+- Its PM, VOC, temperature and humidity are the outside air's (the
+  temperature still warmed by its own fan), on the charts against NEA's.
+  Nothing records the room's particles meanwhile. The divinations leave
+  these readings out: the ward goes quiet over that time, and the house's
+  chord and the Tree of Life read the house from the meter alone.
+- The room gets more air changes, so its CO₂ stays nearer outdoor's
+  (about 420 ppm) and falls back faster once people leave. Souls present
+  fits the air changes to each window's CO₂, so it follows, but a window
+  across the change mixes the two.
+- No decay test is found while it lasts: the purifier no longer clears the
+  room it reads.
+- The forecast by what the filter caught gets better: the PM2.5 it reads is
+  what goes through the filter, where in a room it is what the purifier
+  leaves behind.
+
 For the systemd unit, point its `ExecStart` at
 `%h/projects/aeromancer/.venv/bin/python3` so it finds the package.
