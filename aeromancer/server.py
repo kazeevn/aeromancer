@@ -310,7 +310,12 @@ class Handler(BaseHTTPRequestHandler):
         series = {q: store.series(q, start, end, bucket) for q in CHART_QUANTITIES}
         # Under a generic name, so the public dashboard does not say where home is.
         region = self.server.outdoor_region
-        series["outdoor_pm25"] = store.series(nea.PREFIX + region, start, end, bucket) if region else []
+        series["outdoor_pm25"] = []
+        if region:
+            # Hourly, so the reading before the window too: the chart starts its shading at the window's edge.
+            lead = store.latest_of(nea.PREFIX + region, before=start)
+            series["outdoor_pm25"] = [(lead[0], lead[1], lead[1], lead[1])] if lead else []
+            series["outdoor_pm25"] += store.series(nea.PREFIX + region, start, end, bucket)
         for kind in ("temperature", "humidity"):
             series["outdoor_" + kind] = weather.home_series(store, self.server.home, kind, start, end, bucket)
         return {

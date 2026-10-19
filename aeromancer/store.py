@@ -6,6 +6,7 @@ concurrently, which WAL mode makes safe across processes.
 
 from __future__ import annotations
 
+import math
 import os
 import sqlite3
 from dataclasses import dataclass
@@ -202,10 +203,10 @@ class Store:
         ).fetchall()
         return [name for (name,) in rows]
 
-    def latest_of(self, quantity: str) -> tuple[float, float] | None:
-        """``(ts, value)`` of the newest reading of ``quantity``."""
+    def latest_of(self, quantity: str, before: float = math.inf) -> tuple[float, float] | None:
+        """``(ts, value)`` of the newest reading of ``quantity``, or of the newest before ``before``."""
         return self.db.execute(
-            "SELECT ts, value FROM readings WHERE quantity = ? ORDER BY ts DESC LIMIT 1", (quantity,)
+            "SELECT ts, value FROM readings WHERE quantity = ? AND ts < ? ORDER BY ts DESC LIMIT 1", (quantity, before)
         ).fetchone()
 
     def latest(self) -> dict[str, tuple[float, float]]:

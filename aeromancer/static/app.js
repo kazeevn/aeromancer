@@ -137,6 +137,18 @@ function timeTicks(start, end, count) {
  */
 function stackedChart(container, panels, opts) {
   container.replaceChildren();
+  const { start, end, bucket } = opts.window || state.series;
+  // Break a line where its source was not running.
+  const gapOf = s => Math.max(bucket * 3, 120, (s.interval || 0) * 2.5);
+  // A series may lead with its last row before the window (an hourly one does): its line is drawn
+  // from where it crosses the window's start, and the row stays out of the tooltip.
+  panels = panels.map(p => ({ ...p, series: p.series.map(s => {
+    const rows = s.rows.filter(r => r[0] >= start);
+    const a = s.rows.findLast(r => r[0] < start), b = rows[0];
+    if (!a || !b || b[0] - a[0] > gapOf(s)) return { ...s, rows, drawn: rows };
+    const v = a[1] + ((b[1] - a[1]) * (start - a[0])) / (b[0] - a[0]);
+    return { ...s, rows, drawn: [[start, v, v, v], ...rows] };
+  }) }));
   const any = panels.some(p => p.series.some(s => s.rows.length));
   container.classList.toggle("empty", !any);
   if (!any) { container.style.height = ""; return; }
@@ -155,10 +167,7 @@ function stackedChart(container, panels, opts) {
   const pw = W - m.left - m.right;
   const plotTop = layout[0].top;
   const plotBottom = layout.at(-1).top + layout.at(-1).height;
-  const { start, end, bucket } = opts.window || state.series;
   const x = t => m.left + ((t - start) / (end - start)) * pw;
-  // Break a line where its source was not running.
-  const gapOf = s => Math.max(bucket * 3, 120, (s.interval || 0) * 2.5);
 
   const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, tabindex: 0, role: "img", "aria-label": opts.describe }, container);
 
@@ -187,7 +196,7 @@ function stackedChart(container, panels, opts) {
     }
     svg("line", { class: "baseline", x1: m.left, x2: m.left + pw, y1: p.top + p.height + 0.5, y2: p.top + p.height + 0.5 }, root);
 
-    const rows = p.series.flatMap(s => s.rows);
+    const rows = p.series.flatMap(s => s.drawn);
     if (!rows.length) {
       svg("text", { x: m.left + pw / 2, y: p.top + p.height / 2 + 4, "text-anchor": "middle", class: "panel-empty" }, root)
         .textContent = "No readings in this range";
@@ -218,7 +227,7 @@ function stackedChart(container, panels, opts) {
       if (!s.rows.length) continue;
       const segments = [];
       let seg = [];
-      for (const r of s.rows) {
+      for (const r of s.drawn) {
         if (seg.length && r[0] - seg.at(-1)[0] > gapOf(s)) { segments.push(seg); seg = []; }
         seg.push(r);
       }
