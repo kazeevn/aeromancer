@@ -128,5 +128,9 @@ from the VOC sensor that doesn't follow real CO₂
 returns nothing older than 42 days, so anything older exists only in our
 own recording.
 
+`blueair_temperature` reads warm from the purifier's own heat: about 0.9 °C
+above the zyTemp with the fan off and 2–4 °C running, more at low speed
+([study](archive/blueair-temperature.md)).
+
 For the systemd unit, point its `ExecStart` at
 `%h/projects/aeromancer/.venv/bin/python3` so it finds the package.

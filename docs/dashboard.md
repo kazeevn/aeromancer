@@ -13,7 +13,9 @@ time axis, and so are the devices' moves ([placements](recording.md#where-the-de
 Hover or use the arrow keys on a chart to read every value at that moment.
 
 The purifier's CO₂ is not charted: it is an estimate from its VOC sensor
-that doesn't follow real CO₂ ([study](archive/blueair-eco2.md)).
+that doesn't follow real CO₂ ([study](archive/blueair-eco2.md)). Its
+temperature runs 1–4 °C above the room's, from its own fan
+([study](archive/blueair-temperature.md)).
 
 Below the charts, a Filter card shows how the filter's tile was worked out:
 the last decay test, both forecasts with their ranges, and the app's timer.

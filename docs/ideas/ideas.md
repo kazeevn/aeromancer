@@ -30,6 +30,13 @@ also affect the meter's temperature reading. Outdoor air carries heavy PM, so th
 sleeping, guests) and cooking events instead, and keep any airing short with the purifier on
 high.
 
+Check the zyTemp's temperature against the outdoor stations, to tell which device carries the
+0.9 °C left between it and the purifier with the fan off (../archive/blueair-temperature.md).
+Put the laptop and meter outside late at night, in shade and away from walls warm from the day;
+let it settle for an hour and record for one or two more. The `nea_temperature_*` stations
+disagree by about 1.25 °C at night, but a balcony runs warmer than a station on grass, so a
+reading clearly below them points at the zyTemp.
+
 Test whether the VOC sensor responds at all: hold an open bottle of rubbing alcohol or hand
 sanitizer near the intake for a minute, and expect a VOC/eCO2 spike within one or two 5-minute
 uploads. Best done while VOC sits near zero, as it did after 2026-10-17 18:17.
