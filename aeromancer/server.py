@@ -307,17 +307,13 @@ class Handler(BaseHTTPRequestHandler):
     def series(self, store: Store, query):
         start, end = _window(store, query.get("range", "24h"))
         bucket = max(1.0, (end - start) / int(query.get("points", CHART_POINTS)))
-        series = {q: store.series(q, start, end, bucket) for q in CHART_QUANTITIES}
+        # Each with the reading before the window, so the lines start at the chart's left edge.
+        series = {q: store.series(q, start, end, bucket, lead=True) for q in CHART_QUANTITIES}
         # Under a generic name, so the public dashboard does not say where home is.
         region = self.server.outdoor_region
-        series["outdoor_pm25"] = []
-        if region:
-            # Hourly, so the reading before the window too: the chart starts its shading at the window's edge.
-            lead = store.latest_of(nea.PREFIX + region, before=start)
-            series["outdoor_pm25"] = [(lead[0], lead[1], lead[1], lead[1])] if lead else []
-            series["outdoor_pm25"] += store.series(nea.PREFIX + region, start, end, bucket)
+        series["outdoor_pm25"] = store.series(nea.PREFIX + region, start, end, bucket, lead=True) if region else []
         for kind in ("temperature", "humidity"):
-            series["outdoor_" + kind] = weather.home_series(store, self.server.home, kind, start, end, bucket)
+            series["outdoor_" + kind] = weather.home_series(store, self.server.home, kind, start, end, bucket, lead=True)
         return {
             "start": start,
             "end": end,

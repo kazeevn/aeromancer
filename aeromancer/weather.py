@@ -99,12 +99,12 @@ def nearest(stations: list[dict], home: tuple[float, float], n: int = NEAREST) -
     return sorted(stations, key=km)[:n]
 
 
-def home_series(store: Store, home, name: str, start: float, end: float, bucket: float) -> list:
+def home_series(store: Store, home, name: str, start: float, end: float, bucket: float, lead: bool = False) -> list:
     """``Store.series`` of the nearest station with ``nea_<name>`` readings in the window, or []."""
     if home is None:
         return []
     for station in sorted(store.stations().items(), key=lambda kv: distance(home, kv[1])):
-        rows = store.series(f"{PREFIX}{name}_{station[0]}", start, end, bucket)
+        rows = store.series(f"{PREFIX}{name}_{station[0]}", start, end, bucket, lead)
         if rows:
             return rows
     return []

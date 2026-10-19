@@ -220,10 +220,14 @@ class Store:
         return out
 
     def series(
-        self, quantity: str, start: float, end: float, bucket: float
+        self, quantity: str, start: float, end: float, bucket: float, lead: bool = False
     ) -> list[tuple[float, float, float, float]]:
-        """``(mean ts, mean, min, max)`` per ``bucket``-second interval, in time order."""
-        return self.db.execute(
+        """``(mean ts, mean, min, max)`` per ``bucket``-second interval, in time order.
+
+        With ``lead``, a series with readings in the window starts with the last reading before
+        it, so that a chart can draw its line from the window's edge.
+        """
+        rows = self.db.execute(
             """
             SELECT AVG(ts), AVG(value), MIN(value), MAX(value)
             FROM readings
@@ -233,6 +237,9 @@ class Store:
             """,
             (quantity, start, end, bucket),
         ).fetchall()
+        if lead and rows and (before := self.latest_of(quantity, before=start)):
+            rows.insert(0, (before[0], before[1], before[1], before[1]))
+        return rows
 
     def place(self, ts: float, device: str, room: str, spot: str = "") -> int:
         """Record that ``device`` is in ``room`` at ``spot`` from ``ts`` on; returns the record's id."""

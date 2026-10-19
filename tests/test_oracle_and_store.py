@@ -386,6 +386,11 @@ class StoreTest(unittest.TestCase):
             self.assertEqual(store.latest_of("co2"), (START + 99, 499))
             self.assertEqual(store.latest_of("co2", before=START + 50), (START + 49, 449))
             self.assertIsNone(store.latest_of("co2", before=START))
+            led = store.series("co2", START + 50, START + 99, 10, lead=True)
+            self.assertEqual(led[0], (START + 49, 449, 449, 449))
+            self.assertEqual(led[1:], store.series("co2", START + 50, START + 99, 10))
+            self.assertEqual(store.series("co2", START, START + 99, 10, lead=True), rows)  # nothing before
+            self.assertEqual(store.series("co2", START + 200, START + 300, 10, lead=True), [])  # nothing in it
             self.assertEqual(store.count(), 101)
             self.assertEqual(store.signal_names(), [])
             store.add([Reading(START, "op_71", 1.0), Reading(START, "op_6d", 2.0), Reading(START, "humidity", 3.0)])

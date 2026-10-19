@@ -140,7 +140,7 @@ function stackedChart(container, panels, opts) {
   const { start, end, bucket } = opts.window || state.series;
   // Break a line where its source was not running.
   const gapOf = s => Math.max(bucket * 3, 120, (s.interval || 0) * 2.5);
-  // A series may lead with its last row before the window (an hourly one does): its line is drawn
+  // A series may lead with its last row before the window (/api/series sends one): its line is drawn
   // from where it crosses the window's start, and the row stays out of the tooltip.
   panels = panels.map(p => ({ ...p, series: p.series.map(s => {
     const rows = s.rows.filter(r => r[0] >= start);
@@ -475,7 +475,7 @@ function renderTiles() {
     status.textContent = `Not recording: ${recorder.error || "device disconnected"} · ${updated}`;
   }
 
-  const rows = state.series?.series.co2 || [];
+  const rows = (state.series?.series.co2 || []).filter(r => r[0] >= state.series.start);  // not the lead row
   const avg = rows.length ? rows.reduce((a, r) => a + r[1], 0) / rows.length : null;
   document.getElementById("co2-avg").textContent = avg === null ? "–" : fmtInt.format(avg);
   document.getElementById("co2-range").textContent = rows.length
