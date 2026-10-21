@@ -1,8 +1,5 @@
 Don't record universally constant channels
 
-Online DB
-CLI endpoint
-
 Calibrate the CO2 meter
 Map the CO2 meter's altitude correction at 1000, 2000 and 3000 m (../archive/zytemp-channels.md)
 Smooth `home_pressure` in time, to average out more of the METARs' whole-hPa rounding
