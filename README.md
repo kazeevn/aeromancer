@@ -18,14 +18,14 @@ sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=hidraw
 Then record and open the dashboard at http://127.0.0.1:8000:
 
 ```sh
-python3 -m aeromancer run
+uv run aeromancer run
 ```
 
 To try the dashboard without the meter:
 
 ```sh
-python3 -m aeromancer --db /tmp/demo.sqlite3 simulate --days 14
-python3 -m aeromancer --db /tmp/demo.sqlite3 serve
+uv run aeromancer --db /tmp/demo.sqlite3 simulate --days 14
+uv run aeromancer --db /tmp/demo.sqlite3 serve
 ```
 
 ## Documentation

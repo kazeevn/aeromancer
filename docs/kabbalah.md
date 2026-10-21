@@ -1,7 +1,7 @@
 # The Tree of Life
 
 A second section of the dashboard reads your air through Kabbalah, on the
-same terms as [the Oracle](oracle.md); `python3 -m aeromancer kabbalah --range 7d`
+same terms as [the Oracle](oracle.md); `uv run aeromancer kabbalah --range 7d`
 prints it. It uses every instrument: the zyTemp's CO₂, temperature and
 humidity; the Blueair's readings and settings; NEA's outdoor PM2.5; and the
 nearest station's temperature, humidity, rain and wind speed (not wind

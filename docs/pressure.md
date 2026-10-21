@@ -7,7 +7,7 @@ free, measured source we found. Both sources are free, need no key, and use
 the standard library only.
 
 It starts with `run` and `record` once `~/.config/aeromancer/nea.toml` gives
-home's position (see [nea.md](nea.md)). `python3 -m aeromancer pressure`
+home's position (see [nea.md](nea.md)). `uv run aeromancer pressure`
 polls only the pressure. For the pressure at the meter's height, give its
 altitude above mean sea level in `~/.config/aeromancer/zytemp.toml`, or in
 another file passed with `--zytemp-config`:

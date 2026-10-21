@@ -20,7 +20,7 @@ Stored as ``health_<field>``:
 
 Needs an OAuth client of the Google Cloud project that has the Google Health
 API (docs/health.md), downloaded as ``~/.config/aeromancer/google-health-client.json``.
-``python3 -m aeromancer health-login`` asks for consent and keeps the refresh
+``aeromancer health-login`` asks for consent and keeps the refresh
 token in ``~/.config/aeromancer/google-health-token.json``.
 """
 

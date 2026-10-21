@@ -1,7 +1,7 @@
 # The Oracle
 
 Each finding is computed honestly from your data and interpreted dishonestly.
-The dashboard shows it, and `python3 -m aeromancer oracle --range 7d` prints
+The dashboard shows it, and `uv run aeromancer oracle --range 7d` prints
 it.
 
 The one piece of real advice, what to do about stale air, follows the

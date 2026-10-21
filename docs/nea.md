@@ -14,7 +14,7 @@ region = "central"
 The region stays in that file, not in the command line or on the dashboard,
 which only says "outdoor". With the file present, `run` and `record` poll
 every 10 minutes for the hourly readings, and fill in up to a week after a
-gap; `python3 -m aeromancer nea` polls only NEA. All five regions are stored,
+gap; `uv run aeromancer nea` polls only NEA. All five regions are stored,
 as `nea_pm25_<region>`, each at the middle of the hour it averages; the
 dashboard charts yours.
 

@@ -3,12 +3,12 @@
 ## Commands
 
 ```sh
-python3 -m aeromancer run            # record + dashboard at http://127.0.0.1:8000
-python3 -m aeromancer record         # record only
-python3 -m aeromancer serve          # dashboard only (reads the same database)
-python3 -m aeromancer oracle --range 7d   # the analysis, in the terminal
-python3 -m aeromancer kabbalah --range 7d # the Tree of Life, in the terminal
-python3 -m aeromancer prophecy --range 7d # the council of seers and its prophecy
+uv run aeromancer run            # record + dashboard at http://127.0.0.1:8000
+uv run aeromancer record         # record only
+uv run aeromancer serve          # dashboard only (reads the same database)
+uv run aeromancer oracle --range 7d   # the analysis, in the terminal
+uv run aeromancer kabbalah --range 7d # the Tree of Life, in the terminal
+uv run aeromancer prophecy --range 7d # the council of seers and its prophecy
 ```
 
 `run` and `serve` listen on localhost only; add `--public` to serve the
@@ -40,13 +40,13 @@ each move when it happens (or with `--at` after the fact), as a room and a
 free-text spot precise enough to recreate it:
 
 ```sh
-python3 -m aeromancer place zytemp "living room" table --at start   # since before recording began
-python3 -m aeromancer place blueair bedroom --at start
-python3 -m aeromancer place zytemp bedroom "floor, 10 cm from the purifier's right-side intake"
-python3 -m aeromancer place zytemp bedroom "..." --at "2026-10-17 21:30"   # local time; or just 21:30 for today
-python3 -m aeromancer place blueair "living room" "..." --outdoor-intake   # inside, but drawing outside air
-python3 -m aeromancer placements    # the history, with ids
-python3 -m aeromancer unplace 3     # remove a mistaken record
+uv run aeromancer place zytemp "living room" table --at start   # since before recording began
+uv run aeromancer place blueair bedroom --at start
+uv run aeromancer place zytemp bedroom "floor, 10 cm from the purifier's right-side intake"
+uv run aeromancer place zytemp bedroom "..." --at "2026-10-17 21:30"   # local time; or just 21:30 for today
+uv run aeromancer place blueair "living room" "..." --outdoor-intake   # inside, but drawing outside air
+uv run aeromancer placements    # the history, with ids
+uv run aeromancer unplace 3     # remove a mistaken record
 ```
 
 Devices are `zytemp` (the meter's quantities) and `blueair` (`blueair_*`).

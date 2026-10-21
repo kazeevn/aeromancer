@@ -5,7 +5,7 @@ stay as they are, each reading the window in its own way and prophesying
 from it. The Prophecy is the summary: it asks every method that can foresee
 to foresee together, trusts each as far as it foresaw before, and reads one
 prophecy from them all. The dashboard shows it above the Oracle, and
-`python3 -m aeromancer prophecy --range 7d` prints it with the council's
+`uv run aeromancer prophecy --range 7d` prints it with the council's
 tables. As everywhere here, the arithmetic is real; the emanations are not.
 
 ## The council of seers

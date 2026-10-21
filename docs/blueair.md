@@ -6,7 +6,7 @@ Optionally, the recorder also polls a Blueair Classic i-series purifier
 `blueair` extra (and needs Python 3.12+):
 
 ```sh
-uv venv && uv pip install -e '.[blueair]'   # or: python3 -m venv .venv && .venv/bin/pip install -e '.[blueair]'
+uv sync --extra blueair   # or: python3 -m venv .venv && .venv/bin/pip install -e '.[blueair]'
 ```
 
 Put the Blueair app login in `~/.config/aeromancer/blueair.toml` (or pass
@@ -19,7 +19,7 @@ device = "Bedroom"  # optional: purifier name or uuid; default: the first one
 ```
 
 With that file present, `run` and `record` poll the purifier every 5 minutes
-next to the meter; `python3 -m aeromancer blueair` polls only the purifier.
+next to the meter; `uv run aeromancer blueair` polls only the purifier.
 The cloud keeps one point per 5 minutes, and after a gap the poller fetches
 what it missed, up to a day back. Points are stored as `blueair_pm25`,
 `blueair_pm10`, `blueair_pm1`, `blueair_voc`, `blueair_co2`,

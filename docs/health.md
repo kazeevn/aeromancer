@@ -25,7 +25,7 @@ project with the Google Health API enabled, under Google Auth Platform:
 Then allow access:
 
 ```sh
-python3 -m aeromancer health-login
+uv run aeromancer health-login
 ```
 
 It opens Google's consent page, catches the redirect on 127.0.0.1, and
@@ -36,7 +36,7 @@ poller picks the new one up. A running poller that lost its login logs a
 warning every 15 minutes.
 
 With both files present, `run` and `record` poll Google Health every 15
-minutes next to the meter; `python3 -m aeromancer health` polls only it.
+minutes next to the meter; `uv run aeromancer health` polls only it.
 
 ## What is stored
 

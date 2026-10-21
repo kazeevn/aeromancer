@@ -1,4 +1,4 @@
-"""Command line: ``python -m aeromancer {run,record,blueair,nea,pressure,health,health-login,serve,host,token,place,placements,unplace,oracle,kabbalah,prophecy,simulate}``."""
+"""Command line: ``aeromancer {run,record,blueair,nea,pressure,health,health-login,serve,host,token,place,placements,unplace,oracle,kabbalah,prophecy,simulate}``."""
 
 from __future__ import annotations
 
