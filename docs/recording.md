@@ -57,7 +57,8 @@ each move on the charts.
 
 `--outdoor-intake` is for a device that stands inside but draws mostly
 outside air. Its readings of the air (not the purifier's settings and
-counters) then describe the outside air, so the divinations, which read
+counters) then no longer describe the room, nor quite the outside air
+([blueair.md](blueair.md#outdoor-intake)), so the divinations, which read
 the house's air, leave them out until the next placement without the flag.
 The charts still show them, and the tooltip names them "outdoor intake".
 A device standing outside altogether is not this: give the place it stands
