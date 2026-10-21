@@ -185,6 +185,42 @@ class BlueairTest(unittest.TestCase):
             self.assertEqual(store.count(), 14)
         self.assertEqual([s.closed for s in sessions], [True, True])
 
+    def test_settings(self):
+        calls = []
+
+        class FakeHttpBlueair(FakeApi):
+            def __init__(self, username, password):
+                super().__init__([[1000, 3, 21.0, 40, 100, 5]])
+
+            async def get_devices(self):
+                return [{"uuid": "A1", "name": "Bedroom"}]
+
+            async def cleanup_client_session(self):
+                calls.append("closed")
+
+        for method in ("set_fan_auto_mode", "set_fan_speed", "set_brightness", "set_child_lock"):
+            async def setter(self, uuid, value, method=method):
+                calls.append((method, uuid, value))
+                return {"state": 200 if value != 4 else 400, "message": None}
+            setattr(FakeHttpBlueair, method, setter)
+
+        fake = types.ModuleType("blueair_api")
+        fake.HttpBlueair = FakeHttpBlueair
+        config = blueair.Config("user", "pass")
+        with mock.patch.dict(sys.modules, blueair_api=fake):
+            name, attributes, latest = blueair.settings(config, fan="1", child_lock=True)
+            self.assertEqual((name, attributes["fan_speed"], latest[0].ts), ("Bedroom", "2", 1000))
+            self.assertEqual(calls, [
+                ("set_fan_auto_mode", "A1", False), ("set_fan_speed", "A1", "1"), ("set_child_lock", "A1", True), "closed",
+            ])
+            calls.clear()
+            blueair.settings(config, fan="auto", brightness=0)
+            self.assertEqual(calls, [("set_fan_auto_mode", "A1", True), ("set_brightness", "A1", 0), "closed"])
+            calls.clear()
+            with self.assertRaisesRegex(RuntimeError, "refused"):
+                blueair.settings(config, brightness=4)
+            self.assertEqual(calls[-1], "closed")
+
 
 if __name__ == "__main__":
     unittest.main()

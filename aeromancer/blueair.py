@@ -13,6 +13,9 @@ the newest upload, the fan speed, whether it is in auto mode (1 or 0),
 whether the filter is due (1 or 0), and the usage counters, whose filter
 counter going down marks a filter replacement.
 
+``settings`` changes the purifier's fan, brightness and child lock through
+the same cloud, as the app does.
+
 Needs the optional ``blueair_api`` package (``pip install '.[blueair]'``)
 and the Blueair app login in ``~/.config/aeromancer/blueair.toml``::
 
@@ -210,6 +213,45 @@ async def _poll(db_path, config: Config, stop: threading.Event) -> None:
         if api is not None:
             await api.cleanup_client_session()
         store.close()
+
+
+def _accepted(answer) -> None:
+    """The cloud answers a setting it took with ``{"state": 200, "message": None}``."""
+    if not isinstance(answer, dict) or answer.get("state") != 200:
+        raise RuntimeError(f"the cloud refused the setting: {str(answer)[:200]}")
+
+
+async def _settings(config: Config, changes: list[tuple[str, object]]) -> tuple[str, dict, list[Reading]]:
+    from blueair_api import HttpBlueair
+
+    api = HttpBlueair(username=config.username, password=config.password)
+    try:
+        uuid, name = pick(await api.get_devices(), config.device)
+        for method, value in changes:
+            _accepted(await getattr(api, method)(uuid, value))
+        latest = parse_datapoints(await api.get_data_points_since(uuid, seconds_ago=0, sample_period=SAMPLE_PERIOD))
+        return name, await api.get_attributes(uuid), latest
+    finally:
+        await api.cleanup_client_session()
+
+
+def settings(
+    config: Config, fan: str | None = None, brightness: int | None = None, child_lock: bool | None = None
+) -> tuple[str, dict, list[Reading]]:
+    """Change what is given, then return the purifier's name, attributes and latest upload.
+
+    ``fan`` is "0" to "3", which also takes it out of auto mode, or "auto".
+    """
+    changes: list[tuple[str, object]] = []
+    if fan == "auto":
+        changes.append(("set_fan_auto_mode", True))
+    elif fan is not None:
+        changes += [("set_fan_auto_mode", False), ("set_fan_speed", fan)]
+    if brightness is not None:
+        changes.append(("set_brightness", brightness))
+    if child_lock is not None:
+        changes.append(("set_child_lock", child_lock))
+    return asyncio.run(_settings(config, changes))
 
 
 def poll(db_path, config: Config, stop: threading.Event | None = None) -> None:

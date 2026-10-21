@@ -1,4 +1,4 @@
-"""Command line: ``aeromancer {run,record,blueair,nea,pressure,health,health-login,serve,host,token,place,placements,unplace,oracle,kabbalah,prophecy,simulate}``."""
+"""Command line: ``aeromancer {run,record,blueair,purifier,nea,pressure,health,health-login,serve,host,token,place,placements,unplace,oracle,kabbalah,prophecy,simulate}``."""
 
 from __future__ import annotations
 
@@ -126,15 +126,37 @@ def cmd_record(args):
     record(args.db, device=args.device, min_interval=args.min_interval)
 
 
-def cmd_blueair(args):
+def blueair_config(args) -> blueair.Config:
     try:
         config = blueair.load_config(args.blueair_config)
         if config is None:
-            sys.exit(f"put the Blueair app login in {args.blueair_config} (see README)")
+            sys.exit(f"put the Blueair app login in {args.blueair_config} (see docs/blueair.md)")
         blueair.check_installed()
     except (blueair.Unavailable, ValueError, tomllib.TOMLDecodeError) as e:
         sys.exit(str(e))
-    blueair.poll(args.db, config)
+    return config
+
+
+def cmd_blueair(args):
+    blueair.poll(args.db, blueair_config(args))
+
+
+def cmd_purifier(args):
+    config = blueair_config(args)
+    lock = None if args.lock is None else args.lock == "on"
+    try:
+        name, attributes, latest = blueair.settings(config, fan=args.fan, brightness=args.brightness, child_lock=lock)
+    except Exception as e:  # login, network, a refused setting
+        sys.exit(f"Blueair: {e or type(e).__name__}")
+    mode = "auto" if attributes.get("mode") == "auto" else "set by hand"
+    lock = "on" if attributes.get("child_lock") == "1" else "off"
+    print(f"{name}: fan {attributes.get('fan_speed', '?')} ({mode}), brightness {attributes.get('brightness', '?')}, child lock {lock}")
+    usage = blueair.filter_usage(attributes.get("fan_usage"), 0, None)
+    days = f", {filter_health.app_days_left(usage[blueair.FILTER_PART].value)} days left by the app's timer" if usage else ""
+    print(f"filter {attributes.get('filter_status', '?')}{days}")
+    if latest:
+        values = ", ".join(f"{r.quantity.removeprefix(blueair.PREFIX)} {round(r.value, 1):g}" for r in latest)
+        print(f"uploaded {describe_when(latest[0].ts)}: {values}")
 
 
 def cmd_nea(args):
@@ -469,6 +491,17 @@ def main(argv=None):
     p = sub.add_parser("blueair", help="poll the Blueair purifier only")
     purifier(p)
     p.set_defaults(func=cmd_blueair)
+
+    p = sub.add_parser(
+        "purifier",
+        help="show or change the Blueair purifier's settings",
+        description="Show the Blueair purifier's settings, filter and latest upload, after making the changes given.",
+    )
+    p.add_argument("--fan", choices=("0", "1", "2", "3", "auto"), help="a fan speed, set by hand, or auto")
+    p.add_argument("--brightness", type=int, choices=range(5), help="of its lights, 0 (off) to 4")
+    p.add_argument("--lock", choices=("on", "off"), help="the child lock on its buttons")
+    purifier(p)
+    p.set_defaults(func=cmd_purifier)
 
     p = sub.add_parser("nea", help="poll NEA's outdoor PM2.5 and weather (Singapore) only")
     outdoor(p)

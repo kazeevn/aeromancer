@@ -29,6 +29,21 @@ the model has), and with the newest point also the purifier's settings:
 sensors, 0 when it is set by hand). The cloud keeps no history of the
 settings, so they are missing for any time the poller was down.
 
+## Settings
+
+`purifier` shows the purifier's settings, its filter and its latest upload,
+and changes the settings through the same cloud as the app:
+
+```sh
+uv run aeromancer purifier                  # show only
+uv run aeromancer purifier --fan 1          # a speed, 0 to 3, set by hand
+uv run aeromancer purifier --fan auto       # back to following its sensors
+uv run aeromancer purifier --brightness 0 --lock on   # lights off, buttons locked
+```
+
+The poller records a changed fan speed or mode with the next upload, up to
+5 minutes later.
+
 ## Filter
 
 The cloud reports no filter age or date. The app's "Filter: N days left"
@@ -64,11 +79,11 @@ shows the last test and two forecasts.
 **The test.** With haze outside (or another particle source), in the room
 the purifier stands in:
 
-1. Close the room's doors (and wardrobes), set the fan to 0 in the app, and
-   open the window for about 20 minutes.
-2. Close the window, set the fan to speed 1, and leave the room closed for
-   an hour.
-3. Set the purifier back to auto.
+1. Close the room's doors (and wardrobes), set the fan to 0 (in the app, or
+   `purifier --fan 0`), and open the window for about 20 minutes.
+2. Close the window, set the fan to speed 1 (`purifier --fan 1`), and leave
+   the room closed for an hour.
+3. Set the purifier back to auto (`purifier --fan auto`).
 
 The recording holds the rest: the test is found by the fan set by hand to 0
 and then by hand to speed 1 for 40 minutes or more. The first 10 minutes at

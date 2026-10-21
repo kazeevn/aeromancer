@@ -9,6 +9,7 @@ uv run aeromancer serve          # dashboard only (reads the same database)
 uv run aeromancer oracle --range 7d   # the analysis, in the terminal
 uv run aeromancer kabbalah --range 7d # the Tree of Life, in the terminal
 uv run aeromancer prophecy --range 7d # the council of seers and its prophecy
+uv run aeromancer purifier --fan auto # show or change the Blueair's settings
 ```
 
 `run` and `serve` listen on localhost only; add `--public` to serve the
