@@ -5,6 +5,7 @@
 ```sh
 uv run aeromancer run            # record + dashboard at http://127.0.0.1:8000
 uv run aeromancer record         # record only
+uv run aeromancer record --meter-only   # the meter alone, still uploaded
 uv run aeromancer serve          # dashboard only (reads the same database)
 uv run aeromancer oracle --range 7d   # the analysis, in the terminal
 uv run aeromancer kabbalah --range 7d # the Tree of Life, in the terminal
@@ -23,7 +24,9 @@ survives the meter being unplugged and picks it up again.
 The purifier ([blueair.md](blueair.md)), outdoor ([nea.md](nea.md),
 [pressure.md](pressure.md)) and wearable ([health.md](health.md)) pollers
 start with `run` and `record` when their config files exist, and so does the
-upload to a hosted dashboard ([cloud.md](cloud.md)).
+upload to a hosted dashboard ([cloud.md](cloud.md)). `record --meter-only`
+starts only the upload: it records the meter and nothing online, e.g. on a
+second machine whose meter is the only thing it should add.
 
 ## As a service
 

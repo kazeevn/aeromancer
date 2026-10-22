@@ -119,10 +119,11 @@ def cmd_run(args):
 
 
 def cmd_record(args):
-    start_blueair(args)
-    start_health(args)
+    if not args.meter_only:
+        start_blueair(args)
+        start_health(args)
+        start_outdoor(args)
     start_push(args)
-    start_outdoor(args)
     record(args.db, device=args.device, min_interval=args.min_interval)
 
 
@@ -486,6 +487,11 @@ def main(argv=None):
 
     p = sub.add_parser("record", help="record only")
     recording(p)
+    p.add_argument(
+        "--meter-only",
+        action="store_true",
+        help="record and upload the meter alone, without polling the purifier, NEA, the airports or Google Health",
+    )
     p.set_defaults(func=cmd_record)
 
     p = sub.add_parser("blueair", help="poll the Blueair purifier only")
