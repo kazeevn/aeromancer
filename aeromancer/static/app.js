@@ -1981,41 +1981,54 @@ let refreshes = 0, waitingFor = 0;
 async function refresh({ rangeChanged = false } = {}) {
   if (waitingFor && !rangeChanged) return;
   const mine = waitingFor = ++refreshes;  // a new range supersedes the refresh out, whose answers are then dropped
+  const current = () => mine === waitingFor;
   const charts = document.querySelectorAll(".chart");
   if (rangeChanged) charts.forEach(c => c.classList.add("loading"));
   const r = encodeURIComponent(state.range);
   const divine = rangeChanged || Date.now() - oracleFetched >= ORACLE_REFRESH_MS;
-  try {
-    const [latest, series, oracle, kabbalah, prophecy, filter] = await Promise.all([
-      getJSON("api/latest"),
-      getJSON(`api/series?range=${r}`),
-      divine ? getJSON(`api/oracle?range=${r}`) : null,
-      divine ? getJSON(`api/kabbalah?range=${r}`) : null,
-      divine ? getJSON(`api/prophecy?range=${r}`) : null,
-      divine ? getJSON("api/filter") : null,
-    ]);
-    if (mine !== waitingFor) return;
-    Object.assign(state, { latest, series });
-    renderTiles();
-    renderCharts();
-    if (oracle) {
-      Object.assign(state, { oracle, kabbalah, prophecy, filter });
-      renderFilter();
-      oracleFetched = Date.now();
+  // Each part is drawn as soon as its own answers are in, so a slow one holds up only itself.
+  const part = (urls, draw) => Promise.all(urls.map(getJSON)).then(answers => { if (current()) draw(...answers); });
+  const parts = [
+    part(["api/latest", `api/series?range=${r}`], (latest, series) => {
+      Object.assign(state, { latest, series });
+      renderTiles();
+      renderCharts();
+      charts.forEach(c => c.classList.remove("loading"));
+    }),
+  ];
+  if (divine) parts.push(
+    // Together: the omens under the header start with the prophecy's headline.
+    part([`api/oracle?range=${r}`, `api/prophecy?range=${r}`], (oracle, prophecy) => {
+      Object.assign(state, { oracle, prophecy });
       renderProphecy();
       renderOracle();
+      renderCharts();  // the CO2 chart's chakra bands are the Oracle's
+    }),
+    part([`api/kabbalah?range=${r}`], kabbalah => {
+      state.kabbalah = kabbalah;
       renderKabbalah();
+    }),
+    part(["api/filter"], filter => {
+      state.filter = filter;
+      renderFilter();
+    }),
+  );
+  try {
+    const failed = (await Promise.allSettled(parts)).find(p => p.status === "rejected");
+    if (!current()) return;
+    if (failed) throw failed.reason;
+    if (divine) {
+      oracleFetched = Date.now();
       if (!oracleRendered) scrollToHash();
       oracleRendered = true;
     }
   } catch (e) {
-    if (mine !== waitingFor) return;
     const status = document.getElementById("recorder-status");
     status.classList.remove("live");
     status.classList.add("down");
     status.textContent = e instanceof Expired ? e.message : `Dashboard server unreachable (${e.message})`;
   } finally {
-    if (mine === waitingFor) {
+    if (current()) {
       waitingFor = 0;
       charts.forEach(c => c.classList.remove("loading"));
     }

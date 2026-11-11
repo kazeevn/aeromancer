@@ -415,6 +415,32 @@ class StoreTest(unittest.TestCase):
             self.assertIsNone(store.last_ts("op_*"))
             store.close()
 
+    def test_reading_a_window_takes_the_index_alone_and_the_older_index_goes(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.sqlite3"
+            store = Store(path)
+            store.db.executescript("DROP INDEX readings_quantity_ts_value; CREATE INDEX readings_quantity_ts ON readings (quantity, ts);")
+            store.close()
+            store = Store(path)
+            indexes = {name for (name,) in store.db.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+            self.assertIn("readings_quantity_ts_value", indexes)
+            self.assertNotIn("readings_quantity_ts", indexes)
+            for sql, args in [
+                ("SELECT AVG(ts), AVG(value) FROM readings WHERE quantity = ? AND ts >= ? AND ts <= ? GROUP BY CAST(ts / ? AS INTEGER)", ("co2", 0, 1, 1)),
+                ("SELECT ts, quantity, value FROM readings WHERE quantity GLOB ? AND ts >= ? AND ts <= ? ORDER BY ts", ("blueair_*", 0, 1)),
+            ]:
+                plan = " ".join(row[-1] for row in store.db.execute("EXPLAIN QUERY PLAN " + sql, args))
+                self.assertIn("COVERING INDEX readings_quantity_ts_value", plan)
+            # Of readings at the same time, the last stored counts, whatever their values, as with the earlier index.
+            store.add([Reading(START, "co2", 700), Reading(START, "co2", 500), Reading(START - 1, "co2", 900)])
+            self.assertEqual(store.latest_of("co2"), (START, 500))
+            self.assertEqual(store.latest()["co2"], (START, 500))
+            self.assertEqual([v for _, _, v in store.rows("co2", START, START)], [700, 500])
+            plan = " ".join(row[-1] for row in store.db.execute(
+                "EXPLAIN QUERY PLAN SELECT MAX(ts) FROM readings WHERE quantity = 'co2' AND ts < 1"))
+            self.assertIn("COVERING INDEX", plan)
+            store.close()
+
     def test_tally_counts_through_every_write_and_starts_on_an_older_database(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "x.sqlite3"

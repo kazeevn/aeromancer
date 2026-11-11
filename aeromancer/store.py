@@ -22,7 +22,10 @@ CREATE TABLE IF NOT EXISTS readings (
              -- | synop_<field>_<WMO id> | metar_<field>_<ICAO id> | home_pressure[_msl] | health_<field> (a wearable)
     value    REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS readings_quantity_ts ON readings (quantity, ts);
+-- With the value, so that reading a quantity's window takes the index alone. Without it, each reading was a lookup
+-- in the table, where a quantity's readings lie scattered among the others': from a cold cache on the hosted VM,
+-- 10 s rather than 2 for two months of one quantity. Built, and the earlier (quantity, ts) dropped, on first open.
+CREATE INDEX IF NOT EXISTS readings_quantity_ts_value ON readings (quantity, ts, value);
 CREATE TABLE IF NOT EXISTS placements (
     id     INTEGER PRIMARY KEY,
     ts     REAL NOT NULL,  -- unix time the device got here; 0 = since before recording began
@@ -153,6 +156,7 @@ class Store:
         self.db = sqlite3.connect(path, timeout=10)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        self.db.execute("DROP INDEX IF EXISTS readings_quantity_ts")  # the value index above serves its queries
         if "elevation" not in {row[1] for row in self.db.execute("PRAGMA table_info(stations)")}:
             self.db.execute("ALTER TABLE stations ADD COLUMN elevation REAL")  # added after the first version
         if "outdoor_intake" not in {row[1] for row in self.db.execute("PRAGMA table_info(placements)")}:
@@ -241,7 +245,7 @@ class Store:
     def rows(self, pattern: str, start: float, end: float) -> list[tuple[float, str, float]]:
         """``(ts, quantity, value)`` of every reading of the quantities matching the GLOB ``pattern``, from ``start`` to ``end``."""
         return self.db.execute(
-            "SELECT ts, quantity, value FROM readings WHERE quantity GLOB ? AND ts >= ? AND ts <= ? ORDER BY ts",
+            "SELECT ts, quantity, value FROM readings WHERE quantity GLOB ? AND ts >= ? AND ts <= ? ORDER BY ts, rowid",
             (pattern, start, end),
         ).fetchall()
 
@@ -267,19 +271,19 @@ class Store:
 
     def latest_of(self, quantity: str, before: float = math.inf) -> tuple[float, float] | None:
         """``(ts, value)`` of the newest reading of ``quantity``, or of the newest before ``before``."""
+        # Of several at that time, the last stored. The newest time comes from the index; ordering by ts and rowid
+        # instead would sort every reading of the quantity, since the index orders a time's readings by value.
         return self.db.execute(
-            "SELECT ts, value FROM readings WHERE quantity = ? AND ts < ? ORDER BY ts DESC LIMIT 1", (quantity, before)
+            """
+            SELECT ts, value FROM readings
+            WHERE quantity = ?1 AND ts = (SELECT MAX(ts) FROM readings WHERE quantity = ?1 AND ts < ?2)
+            ORDER BY rowid DESC LIMIT 1
+            """,
+            (quantity, before),
         ).fetchone()
 
     def latest(self) -> dict[str, tuple[float, float]]:
-        out = {}
-        for q in QUANTITIES:
-            row = self.db.execute(
-                "SELECT ts, value FROM readings WHERE quantity = ? ORDER BY ts DESC LIMIT 1", (q,)
-            ).fetchone()
-            if row:
-                out[q] = row
-        return out
+        return {q: row for q in QUANTITIES if (row := self.latest_of(q))}
 
     def series(
         self, quantity: str, start: float, end: float, bucket: float, lead: bool = False
