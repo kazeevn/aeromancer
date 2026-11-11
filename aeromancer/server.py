@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import math
+import threading
 import time
+from concurrent.futures import Future
 from http import HTTPStatus
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -39,6 +41,9 @@ COOKIE = "aeromancer"
 FOREVER = 10 * 365 * 86400  # a cookie's lifetime for a token that never expires
 MAX_BODY = 2 << 20  # bytes of an upload
 MAX_READINGS = 5000  # per upload
+# Seconds an answer is shared between viewers before it is worked out again. The divinations are slow and the
+# dashboard asks for them once a minute; the charts it asks for every 15 s, so one viewer still sees each reading.
+CACHED = {"/api/series": 10, "/api/oracle": 60, "/api/kabbalah": 60, "/api/prophecy": 60, "/api/filter": 60}
 EXPIRED_PAGE = b"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Aeromancer</title><body style="font-family: system-ui, sans-serif; margin: 3rem 1rem; text-align: center">
 <h1>Aeromancer</h1><p>This link has expired or is not valid. Ask for a new one.</p></body>"""
@@ -145,6 +150,36 @@ def run_kabbalah(store: Store, range_text: str, outdoor_region: str | None = Non
     return kabbalah.analyze(series, end, outdoor_pm25_now(store, outdoor_region))
 
 
+class Cache:
+    """Answers kept for a while, so that viewers, and requests that pile up behind a slow one, wait for one
+    computation instead of each starting their own. Failures are not kept."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._entries: dict = {}  # key: (expiry, Future); expiry None while it is being worked out
+
+    def get(self, key, ttl: float, compute):
+        now = time.monotonic()
+        with self._lock:
+            entry = self._entries.get(key)
+            mine = entry is None or (entry[0] is not None and entry[0] <= now)
+            if mine:
+                self._entries = {k: e for k, e in self._entries.items() if e[0] is None or e[0] > now}
+                entry = self._entries[key] = (None, Future())
+        future = entry[1]
+        if mine:
+            try:
+                future.set_result(compute())
+            except BaseException as e:
+                with self._lock:
+                    del self._entries[key]
+                future.set_exception(e)
+            else:
+                with self._lock:
+                    self._entries[key] = (time.monotonic() + ttl, future)
+        return future.result()
+
+
 class DashboardServer(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -165,6 +200,7 @@ class DashboardServer(ThreadingHTTPServer):
         self.home = home
         self.filter_settings = filter_settings
         self.auth = auth  # when hosted: every request needs a token (tokens.py), and machines may upload
+        self.cache = Cache()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -192,7 +228,13 @@ class Handler(BaseHTTPRequestHandler):
         }.get(url.path)
         if api is None:
             return self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
-        self._answer(lambda: self._with_store(True, lambda store: api(store, query)))
+        def answer():
+            return self._with_store(True, lambda store: api(store, query))
+
+        if url.path in CACHED:
+            key = (url.path, tuple(sorted(query.items())))
+            return self._answer(lambda: self.server.cache.get(key, CACHED[url.path], answer))
+        self._answer(answer)
 
     def do_POST(self):
         path = urlsplit(self.path).path

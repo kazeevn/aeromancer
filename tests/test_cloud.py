@@ -30,6 +30,38 @@ def fetch(url, method="GET", body=None, headers=None):
         return e.code, e.headers, e.read()
 
 
+class CacheTest(unittest.TestCase):
+    def test_callers_share_one_computation_until_it_expires(self):
+        cache, calls, started, release = server.Cache(), [], threading.Event(), threading.Event()
+
+        def compute():
+            calls.append(1)
+            started.set()
+            release.wait(5)
+            return len(calls)
+
+        results = []
+        threads = [threading.Thread(target=lambda: results.append(cache.get("k", 60, compute))) for _ in range(3)]
+        threads[0].start()
+        started.wait(5)
+        for t in threads[1:]:
+            t.start()
+        release.set()
+        for t in threads:
+            t.join(5)
+        self.assertEqual((results, len(calls)), ([1, 1, 1], 1))
+        self.assertEqual(cache.get("k", 60, compute), 1)
+        self.assertEqual(cache.get("other", 60, compute), 2)
+        with mock.patch.object(server.time, "monotonic", return_value=time.monotonic() + 61):
+            self.assertEqual(cache.get("k", 60, compute), 3)
+
+    def test_failures_are_not_kept(self):
+        cache = server.Cache()
+        with self.assertRaises(ValueError):
+            cache.get("k", 60, lambda: int("x"))
+        self.assertEqual(cache.get("k", 60, lambda: 7), 7)
+
+
 class HostedTest(unittest.TestCase):
     """The dashboard as ``host`` serves it: only to token holders, and taking the meter's uploads."""
 
@@ -88,6 +120,14 @@ class HostedTest(unittest.TestCase):
         status, _, body = fetch(self.url + "/api/readings", "POST", rows, bearer)
         self.assertEqual(json.loads(body), {"added": 0})
         self.assertEqual(len(self.readings()), 3)
+
+    def test_count_follows_uploads_between_full_counts(self):
+        cookie = {"Cookie": f"{server.COOKIE}={self.view}"}
+        self.assertEqual(json.loads(fetch(self.url + "/api/latest", headers=cookie)[2])["count"], 1)
+        rows = {"readings": [[START + 5, "co2", 610], [START + 10, "co2", 620]]}
+        fetch(self.url + "/api/readings", "POST", rows, {"Authorization": f"Bearer {self.write}"})
+        latest = json.loads(fetch(self.url + "/api/latest", headers=cookie)[2])
+        self.assertEqual((latest["count"], latest["first_ts"]), (3, START))
 
     def test_uploads_only_the_meter_and_only_with_a_write_token(self):
         rows = {"readings": [[START + 5, "co2", 610]]}

@@ -32,6 +32,9 @@ themselves, `#prophecy` and `#tree-of-life`, and every card of the Oracle and
 the Tree of Life has its own `#omen-…`; the omens under the page header start
 with the prophecy's headline.
 
-The dashboard refreshes every 15 s while its tab is visible. Hosted, it
+The dashboard refreshes every 15 s while its tab is visible, skipping a
+refresh while the last one is still being answered. The server shares its
+answers between viewers for a while: the charts for 10 s, the divinations
+and the filter for a minute. Hosted, it
 opens only through a share link, and says so when the link has expired
 ([cloud.md](cloud.md)).

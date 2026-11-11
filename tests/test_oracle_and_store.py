@@ -402,6 +402,43 @@ class StoreTest(unittest.TestCase):
             self.assertEqual(store.signal_names(), ["op_6d", "op_71"])
             store.close()
 
+    def test_span_and_counts(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = Store(Path(d) / "x.sqlite3")
+            self.assertEqual((store.span(), store.first_ts("*"), store.count()), (None, None, 0))
+            store.add([Reading(START + 5, "co2", 1), Reading(START + 9, "co2", 2), Reading(START, "blueair_pm25", 3)])
+            store.add([Reading(START + 20, "blueair_voc", 4), Reading(START + 1, "nea_pm25_central", 5)])
+            self.assertEqual(store.span(), (START, START + 20))
+            self.assertEqual(store.span(), store.db.execute("SELECT MIN(ts), MAX(ts) FROM readings").fetchone())
+            self.assertEqual((store.first_ts("blueair_*"), store.last_ts("blueair_*")), (START, START + 20))
+            self.assertEqual((store.first_ts("co2"), store.last_ts("co2")), (START + 5, START + 9))
+            self.assertIsNone(store.last_ts("op_*"))
+            store.close()
+
+    def test_tally_counts_through_every_write_and_starts_on_an_older_database(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.sqlite3"
+            store = Store(path)
+            store.db.executescript("DROP TRIGGER tally_insert; DROP TRIGGER tally_delete; DROP TABLE tally;")  # as before it
+            store.add(Reading(START + i, "co2", i) for i in range(10))
+            self.assertEqual(store.count(), 10)  # by counting
+            store.close()
+            store = Store(path)
+
+            def counted():
+                return store.db.execute("SELECT COUNT(*) FROM readings").fetchone()[0]
+
+            self.assertEqual(store.count(), 10)
+            store.add([Reading(START + 20, "humidity", 50)])
+            self.assertEqual(store.add_new([Reading(START, "co2", 0), Reading(START + 30, "co2", 1)]), 1)
+            store.replace("co2", START, START + 4, [Reading(START + 2, "co2", 9)])
+            self.assertEqual(store.count(), counted())
+            self.assertEqual(store.count(), 8)
+            reader = Store(path, readonly=True)
+            self.assertEqual(reader.count(), 8)
+            reader.close()
+            store.close()
+
     def test_placements(self):
         with tempfile.TemporaryDirectory() as d:
             store = Store(Path(d) / "x.sqlite3")

@@ -53,7 +53,24 @@ CREATE TABLE IF NOT EXISTS pushed (  -- how far the meter's readings have been u
 );
 """
 
+# How many readings there are, kept by triggers: COUNT(*) reads the whole index, over a minute on the hosted VM.
+# In one write transaction, so that no reading slips in between the count and the triggers; the count is
+# skipped when another process has just made the tally.
+TALLY = """
+BEGIN IMMEDIATE;
+CREATE TABLE IF NOT EXISTS tally (readings INTEGER NOT NULL);
+INSERT INTO tally SELECT n FROM (SELECT COUNT(*) AS n FROM readings) WHERE NOT EXISTS (SELECT 1 FROM tally);
+CREATE TRIGGER IF NOT EXISTS tally_insert AFTER INSERT ON readings BEGIN UPDATE tally SET readings = readings + 1; END;
+CREATE TRIGGER IF NOT EXISTS tally_delete AFTER DELETE ON readings BEGIN UPDATE tally SET readings = readings - 1; END;
+COMMIT;
+"""
 QUANTITIES = ("co2", "temperature", "humidity")
+# Every quantity recorded, as ``q(name)``, by one index lookup each: a skip scan, which SQLite does not plan by itself.
+_QUANTITIES = """q(name) AS (
+    SELECT MIN(quantity) FROM readings
+    UNION ALL
+    SELECT (SELECT MIN(quantity) FROM readings WHERE quantity > q.name) FROM q WHERE q.name IS NOT NULL
+)"""
 DEVICES = ("zytemp", "blueair")
 
 
@@ -140,6 +157,8 @@ class Store:
             self.db.execute("ALTER TABLE stations ADD COLUMN elevation REAL")  # added after the first version
         if "outdoor_intake" not in {row[1] for row in self.db.execute("PRAGMA table_info(placements)")}:
             self.db.execute("ALTER TABLE placements ADD COLUMN outdoor_intake INTEGER NOT NULL DEFAULT 0")  # likewise
+        if not self.db.execute("SELECT 1 FROM sqlite_master WHERE name = 'tally'").fetchone():
+            self.db.executescript(TALLY)  # added later too; counting a big database takes a minute, once
 
     def close(self) -> None:
         self.db.close()
@@ -154,13 +173,11 @@ class Store:
     def add_new(self, readings: Iterable[Reading]) -> int:
         """Add the readings not stored yet (by quantity and time), so uploads can be retried; returns how many were new."""
         with self.db:
-            before = self.db.total_changes
-            self.db.executemany(
+            return self.db.executemany(  # rowcount, unlike total_changes, leaves out what the tally's triggers do
                 "INSERT INTO readings (ts, quantity, value) SELECT ?1, ?2, ?3"
                 " WHERE NOT EXISTS (SELECT 1 FROM readings WHERE quantity = ?2 AND ts = ?1)",
                 ((r.ts, r.quantity, r.value) for r in readings),
-            )
-            return self.db.total_changes - before
+            ).rowcount
 
     def unpushed(self, after_rowid: int, limit: int) -> list[tuple[int, float, str, float]]:
         """``(rowid, ts, quantity, value)`` of the meter's readings stored after ``after_rowid``, oldest first."""
@@ -194,17 +211,32 @@ class Store:
         """Each station's elevation, of those whose elevation is known."""
         return dict(self.db.execute("SELECT id, elevation FROM stations WHERE elevation IS NOT NULL"))
 
-    def span(self) -> tuple[float, float] | None:
-        first, last = self.db.execute("SELECT MIN(ts), MAX(ts) FROM readings").fetchone()
+    def span(self, pattern: str = "*") -> tuple[float, float] | None:
+        """Times of the oldest and newest readings of the quantities matching the GLOB ``pattern``.
+
+        Two index lookups per quantity: ``MIN(ts)`` over the whole table, or over a pattern's quantities,
+        would read every one of their readings, which takes half a minute on the hosted VM.
+        """
+        first, last = self.db.execute(
+            f"""
+            WITH RECURSIVE {_QUANTITIES}
+            SELECT MIN((SELECT MIN(ts) FROM readings WHERE quantity = q.name)),
+                   MAX((SELECT MAX(ts) FROM readings WHERE quantity = q.name))
+            FROM q WHERE q.name GLOB ?
+            """,
+            (pattern,),
+        ).fetchone()
         return None if first is None else (first, last)
 
     def last_ts(self, pattern: str) -> float | None:
         """Time of the newest reading of any quantity matching the GLOB ``pattern``."""
-        return self.db.execute("SELECT MAX(ts) FROM readings WHERE quantity GLOB ?", (pattern,)).fetchone()[0]
+        span = self.span(pattern)
+        return span[1] if span else None
 
     def first_ts(self, pattern: str) -> float | None:
         """Time of the oldest reading of any quantity matching the GLOB ``pattern``."""
-        return self.db.execute("SELECT MIN(ts) FROM readings WHERE quantity GLOB ?", (pattern,)).fetchone()[0]
+        span = self.span(pattern)
+        return span[0] if span else None
 
     def rows(self, pattern: str, start: float, end: float) -> list[tuple[float, str, float]]:
         """``(ts, quantity, value)`` of every reading of the quantities matching the GLOB ``pattern``, from ``start`` to ``end``."""
@@ -222,20 +254,15 @@ class Store:
             )
 
     def count(self) -> int:
-        return self.db.execute("SELECT COUNT(*) FROM readings").fetchone()[0]
+        """How many readings there are, as the tally keeps it; a database no recorder has opened since has none."""
+        try:
+            return self.db.execute("SELECT readings FROM tally").fetchone()[0]
+        except sqlite3.OperationalError:  # no such table
+            return self.db.execute("SELECT COUNT(*) FROM readings").fetchone()[0]
 
     def signal_names(self) -> list[str]:
-        """The undocumented ``op_XX`` quantities ever recorded (skip-scans the index)."""
-        rows = self.db.execute(
-            """
-            WITH RECURSIVE q(name) AS (
-                SELECT MIN(quantity) FROM readings
-                UNION ALL
-                SELECT (SELECT MIN(quantity) FROM readings WHERE quantity > q.name) FROM q WHERE q.name IS NOT NULL
-            )
-            SELECT name FROM q WHERE name GLOB 'op_*'
-            """
-        ).fetchall()
+        """The undocumented ``op_XX`` quantities ever recorded."""
+        rows = self.db.execute(f"WITH RECURSIVE {_QUANTITIES} SELECT name FROM q WHERE name GLOB 'op_*'").fetchall()
         return [name for (name,) in rows]
 
     def latest_of(self, quantity: str, before: float = math.inf) -> tuple[float, float] | None:

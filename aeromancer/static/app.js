@@ -2,6 +2,7 @@
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const REFRESH_MS = 15000;
+const FETCH_TIMEOUT_MS = 120000;
 const RANGE_KEY = "aeromancer.range";
 
 const state = {
@@ -26,7 +27,8 @@ function saveRange(r) {
 class Expired extends Error {}
 
 async function getJSON(url) {
-  const res = await fetch(url);
+  // A request the server never answers would otherwise hold up every refresh after it (see refresh).
+  const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (res.status === 401) throw new Expired("This link has expired. Ask for a new one.");  // hosted: docs/cloud.md
   if (!res.ok) throw new Error(`${url}: ${res.status}`);
   return res.json();
@@ -1972,7 +1974,13 @@ function scrollToHash() {
   if (target) target.scrollIntoView();
 }
 
+// The refresh being waited for, by number, or 0. While one is out, the 15 s ticks skip theirs: a slow server
+// would otherwise get a new round of requests every tick, each answered slower than the last.
+let refreshes = 0, waitingFor = 0;
+
 async function refresh({ rangeChanged = false } = {}) {
+  if (waitingFor && !rangeChanged) return;
+  const mine = waitingFor = ++refreshes;  // a new range supersedes the refresh out, whose answers are then dropped
   const charts = document.querySelectorAll(".chart");
   if (rangeChanged) charts.forEach(c => c.classList.add("loading"));
   const r = encodeURIComponent(state.range);
@@ -1986,6 +1994,7 @@ async function refresh({ rangeChanged = false } = {}) {
       divine ? getJSON(`api/prophecy?range=${r}`) : null,
       divine ? getJSON("api/filter") : null,
     ]);
+    if (mine !== waitingFor) return;
     Object.assign(state, { latest, series });
     renderTiles();
     renderCharts();
@@ -2000,12 +2009,16 @@ async function refresh({ rangeChanged = false } = {}) {
       oracleRendered = true;
     }
   } catch (e) {
+    if (mine !== waitingFor) return;
     const status = document.getElementById("recorder-status");
     status.classList.remove("live");
     status.classList.add("down");
     status.textContent = e instanceof Expired ? e.message : `Dashboard server unreachable (${e.message})`;
   } finally {
-    charts.forEach(c => c.classList.remove("loading"));
+    if (mine === waitingFor) {
+      waitingFor = 0;
+      charts.forEach(c => c.classList.remove("loading"));
+    }
   }
 }
 
