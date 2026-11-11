@@ -65,7 +65,11 @@ The phone syncs the wearable's data in batches, and sleep is reprocessed
 after waking, so each poll re-reads each data type from 6 hours before its
 newest stored reading, and replaces what is stored there; a sleep is
 replaced whole. The first poll backfills 30 days, which for heart rate is
-about 200 requests and 10 minutes.
+about 200 requests and 10 minutes. A catch-up, like that one or after an
+expired login, is fetched and stored a day at a time, so it holds a day of
+heart rate in memory (about 32,000 points), not a month: all of it at once
+had the hosted VM swapping. Filters take an upper bound as well, joined with
+`AND`.
 
 ## Notes on the API
 

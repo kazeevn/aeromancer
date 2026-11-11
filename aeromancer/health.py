@@ -31,6 +31,7 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import math
 import os
 import secrets
 import threading
@@ -58,6 +59,9 @@ SCOPES = tuple(
 POLL_SECONDS = 900.0
 LATE = 6 * 3600  # re-read this far before the newest stored reading: the phone syncs in batches, and sleep is reprocessed
 MAX_BACKFILL = 30 * 86400  # seconds
+# Seconds of a type fetched and stored at a time: catching up on weeks holds a day of heart rate (about 32k points,
+# every 2-5 s) in memory, not all of it, which on the hosted VM had the dashboard swapping.
+CHUNK = 86400
 PAGE_SIZE = 10000  # the API's maximum; 25 for sleep
 PAUSE = 1.0  # seconds between requests
 PHONE = "MobileTrack"  # the device name of the phone's own step count, which counts the same walks as the wearable
@@ -335,16 +339,26 @@ def poll_type(session: Session, store: Store, data_type: str, now: float) -> int
     field, kind, parse, quantities = TYPES[data_type]
     since = _window(store, quantities, now)
     name = data_type.replace("-", "_")  # as filters name it
-    if kind == "date":
+    if kind == "date":  # one a day: nothing to split
         since = dt.datetime.fromtimestamp(since).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-        filter_ = f'{name}.date >= "{dt.date.fromtimestamp(since).isoformat()}"'
-    else:
-        filter_ = f'{name}.{FILTERS[kind]} >= "{_rfc3339(since)}"'
-    points = [p for p in fetch(session, data_type, filter_) if field in p and _device(p) != PHONE]
-    readings = [r for p in points for r in parse(p[field])]
+        return _store(session, store, data_type, f'{name}.date >= "{dt.date.fromtimestamp(since).isoformat()}"', since, None, now)
+    total, start = 0, float(math.floor(since))  # in whole seconds, as the filter has it, so the two cover the same readings
+    while True:
+        filter_ = f'{name}.{FILTERS[kind]} >= "{_rfc3339(start)}"'
+        if start + CHUNK >= now:  # the last, open-ended: the newest can be stamped a little after now
+            return total + _store(session, store, data_type, filter_, start, None, now)
+        filter_ += f' AND {name}.{FILTERS[kind]} < "{_rfc3339(start + CHUNK)}"'
+        total += _store(session, store, data_type, filter_, start, start + CHUNK, now)
+        start += CHUNK
+
+
+def _store(session: Session, store: Store, data_type: str, filter_: str, start: float, end: float | None, now: float) -> int:
+    """Replace ``data_type``'s readings from ``start`` to ``end`` (None: past now, to the newest) by those ``filter_`` finds."""
+    field, _, parse, quantities = TYPES[data_type]
+    readings = [r for p in fetch(session, data_type, filter_) if field in p and _device(p) != PHONE for r in parse(p[field])]
     for q in quantities:
         mine = [r for r in readings if r.quantity == PREFIX + q]
-        store.replace(PREFIX + q, since, max(now, *(r.ts for r in mine)) if mine else now, mine)
+        store.replace(PREFIX + q, start, end if end is not None else max([now, *(r.ts for r in mine)]), mine)
     return len(readings)
 
 

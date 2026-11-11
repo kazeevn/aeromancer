@@ -1,5 +1,6 @@
 import datetime as dt
 import json
+import re
 import tempfile
 import unittest
 import urllib.parse
@@ -44,8 +45,21 @@ def sleep(start, stages, end):
     }
 
 
+def _when(data_type, point):
+    """The time a filter goes by: a sample's, an interval's start, a sleep's end; None for the daily types."""
+    inner = next(v for k, v in point.items() if k != "dataSource")
+    if "sampleTime" in inner:
+        return inner["sampleTime"]["physicalTime"]
+    if "interval" in inner:
+        return inner["interval"]["endTime" if data_type == "sleep" else "startTime"]
+    return None
+
+
 class FakeSession:
-    """Serves ``points[data_type]`` newest first, ``page`` at a time, as the API does; records the filters asked."""
+    """Serves ``points[data_type]`` newest first, ``page`` at a time, as the API does; records the filters asked.
+
+    Like the API, it keeps the points from the filter's ``>=`` time and before its ``<`` one, to the second.
+    """
 
     def __init__(self, points, page=2):
         self.points, self.page, self.asked = points, page, []
@@ -56,8 +70,14 @@ class FakeSession:
         query = dict(urllib.parse.parse_qsl(parts.query))
         self.asked.append((data_type, query["filter"]))
         start = int(query.get("pageToken", 0))
-        points = self.points.get(data_type, [])[start : start + self.page]
-        more = start + self.page < len(self.points.get(data_type, []))
+        after, before = re.search(r'>= "([^"]+)"', query["filter"]), re.search(r'< "([^"]+)"', query["filter"])
+        matching = [
+            p for p in self.points.get(data_type, [])
+            if (when := _when(data_type, p)) is None
+            or ((not after or when >= after[1]) and (not before or when < before[1]))  # RFC 3339 in UTC sorts as text
+        ]
+        points = matching[start : start + self.page]
+        more = start + self.page < len(matching)
         return {"dataPoints": points, **({"nextPageToken": str(start + self.page)} if more else {})}
 
 
@@ -100,8 +120,32 @@ class PollTest(unittest.TestCase):
         session = FakeSession(points)
         health.poll_type(session, self.store, "heart-rate", NOW)
         self.assertEqual(self.rows("health_heart_rate"), [(NOW - i * 5, 60 + i) for i in reversed(range(5))])
-        self.assertEqual(len(session.asked), 3)
-        self.assertEqual(session.asked[0][1], f'heart_rate.sample_time.physical_time >= "{utc(NOW - health.MAX_BACKFILL)}"')
+        self.assertEqual(len(session.asked), health.MAX_BACKFILL // health.CHUNK + 2)  # a request a day, three pages the last
+        field = "heart_rate.sample_time.physical_time"
+        start = NOW - health.MAX_BACKFILL
+        self.assertEqual(session.asked[0][1], f'{field} >= "{utc(start)}" AND {field} < "{utc(start + health.CHUNK)}"')
+        self.assertEqual(session.asked[-1][1], f'{field} >= "{utc(NOW - health.CHUNK)}"')
+
+    def test_a_catch_up_is_fetched_and_stored_a_day_at_a_time(self):
+        newest = NOW - 3.5 * 86400
+        self.store.add([health.Reading(newest, "health_heart_rate", 60)])
+        points = {"heart-rate": [heart_rate(NOW - i * 3600, i) for i in range(4 * 24) if NOW - i * 3600 >= newest]}
+        session = FakeSession(points, page=1000)
+        stored = []
+        replace = self.store.replace
+        with mock.patch.object(self.store, "replace", side_effect=lambda *a: stored.append(len(a[3])) or replace(*a)):
+            n = health.poll_type(session, self.store, "heart-rate", NOW)
+        self.assertEqual(n, len(points["heart-rate"]))
+        self.assertEqual(len(session.asked), 4)  # 3.25 days from the newest less the late window
+        self.assertLessEqual(max(stored), 24)
+        self.assertEqual(self.rows("health_heart_rate"), sorted((NOW - i * 3600, i) for i in range(85)))  # the newest re-read
+
+    def test_a_window_starting_mid_second_stores_no_reading_twice(self):
+        now = NOW + 0.5  # the backfill limit then starts mid-second, and the API's times are whole seconds
+        oldest = NOW - health.MAX_BACKFILL
+        self.store.add([health.Reading(oldest, "health_heart_rate", 59)])  # stored by the poll before
+        health.poll_type(FakeSession({"heart-rate": [heart_rate(oldest, 59)]}), self.store, "heart-rate", now)
+        self.assertEqual(self.rows("health_heart_rate"), [(oldest, 59)])
 
     def test_the_phone_steps_are_dropped(self):
         session = FakeSession({"steps": [steps(NOW - 60, 100), steps(NOW - 60, 98, PHONE), steps(NOW - 120, 7, PHONE)]})
